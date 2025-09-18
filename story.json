@@ -1,0 +1,476 @@
+{
+    "name":"story",
+    "description":"이야기 카드와 관련 prompt, image 모음",
+    "cards":[
+        {
+            "id":20001,
+           "name":"우정",
+           "eng_name":"friendship",
+           "prompt":"주인공과 친구 사이의 우정에 대한 이야기입니다. 우정을 시험하거나 보여주는 구체적인 사건이 들어갑니다. 주인공과 친구 사이의 대화가 있습니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of campfire with friends, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_friendship.png"
+        },
+        {
+            "id":20002,
+            "name":"용기",
+            "eng_name":"courage",
+            "prompt":"위험한 상황에 직면했을 때 필요한 용기에 대한 이야기입니다. 주인공이 위험을 감수하고 용기를 내는 구체적인 사건이 들어갑니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of a boy fighting with a lion, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_courage.png"
+        },
+        {
+            "id":20003,
+            "name":"성장",
+            "eng_name":"growth",
+            "prompt":"주인공이 성장하고 변화하는 이야기입니다. 주인공의 성장과 변화를 보여주는 구체적인 사건이 들어갑니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of Delacroix, the goddess of victory who leads the people pointing sword to the sky, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_growth.png"
+        },
+        {
+            "id":20004,
+            "name":"교훈",
+            "eng_name":"lesson",
+            "prompt":"주인공이 중요한 교훈을 얻는 이야기입니다. 주인공의 교훈을 얻게 되는 구체적인 사건이 들어갑니다.",
+            "ban":[
+                "1",
+                "2-3"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of an enlightened boy under a lightbulb, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_lesson.png"
+        },
+        {
+            "id":20005,
+            "name":"사랑",
+            "eng_name":"love",
+            "prompt":"진정한 사랑과 아름다움에 대한 이야기입니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of kiss, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_love.png"
+        },
+        {
+            "id":20006,
+            "name":"나",
+            "eng_name":"self",
+            "prompt":"나를 그대로 받아들이는 이야기입니다. 나를 그대로 받아들여가는 주인공의 마음을 보여줍니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of full-length mirror, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_self.png"
+        },
+        {
+            "id":20007,
+            "name":"충성",
+            "eng_name":"loyalty",
+            "prompt":"친구나 가족에 대한 충성에 대한 이야기입니다. 주인공이 충성을 보여주는 구체적인 사건이 들어갑니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of A knight pledges allegiance to his lord, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_loyalty.png"
+        },
+        {
+            "id":20008,
+            "name":"저항",
+            "eng_name":"resistance",
+            "prompt":"억압과 불의에 맞서 저항하는 이야기입니다. 주인공이 처한 불의한 상황을 보여주고 주인공이 그에 저항하는 장면이 들어갑니다. 대화가 있습니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of People protesting by throwing stone, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_resistance.png"
+        },
+        {
+            "id":20009,
+            "name":"모험",
+            "eng_name":"adventure",
+            "prompt":"새로운 장소와 아이디어를 탐험하며 모함하는 이야기입니다. 주인공의 모험을 보여주는 구체적인 사건이 들어갑니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of roller coaster, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_adventure.png"
+        },
+        {
+            "id":20010,
+            "name":"상상",
+            "eng_name":"fantasy",
+            "prompt":"상상의 세계를 탐험하는 이야기입니다. 상상의 세계를 구체적으로 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of tree of life, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_fantasy.png"
+        },
+        {
+            "id":20011,
+            "name":"영웅",
+            "eng_name":"hero",
+            "prompt":"악과 불의에 맞서 싸우는 영웅이 등장합니다. 또는, 주인공이 악과 불의에 맞서 싸우는 영웅이 됩니다. 대화가 있습니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of conan the barbarian, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_hero.png"
+        },
+        {
+            "id":20012,
+            "name":"악당",
+            "eng_name":"villain",
+            "prompt":"주인공과 영웅의 목표를 방해하거나 악한 행동을 하는 악당이 등장합니다. 대화가 있습니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of villain, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_villain.png"
+        },
+        {
+            "id":20013,
+            "name":"스승",
+            "eng_name":"mentor",
+            "prompt":"주인공에게 지혜와 가르침을 주는 스승이 등장합니다. 대화가 있습니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of teacher teaching students, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_mentor.png"
+        },
+        {
+            "id":20014,
+            "name":"친구",
+            "eng_name":"friend",
+            "prompt":"주인공을 돕고 동행하는 친구가 등장합니다. 대화가 있습니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of two friends holding hands, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_friend.png"
+        },
+        {
+            "id":20015,
+            "name":"변신",
+            "eng_name":"metamorphosis",
+            "prompt":"주인공이나 주요 캐릭터가 다른 존재로 변신합니다. 어떤 존재가 되는지 구체적으로 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of metamorphosis, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_metamorphosis.png"
+        },
+        {
+            "id":20016,
+            "name":"유머",
+            "eng_name":"humor",
+            "prompt":"웃긴 대화를 하거나 웃긴 사건이 벌어집니다. 웃겨야 합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of laugh out loud, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_humor.png"
+        },
+        {
+            "id":20017,
+            "name":"현자",
+            "eng_name":"sage",
+            "prompt":"이야기 세계에 대해 광범위한 지식을 가진 현자가 등장합니다. 대화로 주인공에게 중요한 정보를 알려줍니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of gandalf, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_sage.png"
+        },
+        {
+            "id":20018,
+            "name":"희생",
+            "eng_name":"sacrifice",
+            "prompt":"주인공이 대의를 위해 스스로를 희생합니다. 희생하는 이유와 과정에 대해 구체적으로 묘사합니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of firefighters rescuing people from building fire, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_sacrifice.png"
+        },
+        {
+            "id":20019,
+            "name":"구원",
+            "eng_name":"salvation",
+            "prompt":"주인공이 다른 캐릭터들을 도와 위기를 극복합니다. 극복하는 과정에 대해 구체적으로 묘사합니다",
+            "ban":[
+                "1",
+                "2-3"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of aura of light to praying girl, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_salvation.png"
+        },
+        {
+            "id":20020,
+            "name":"모험의 시작",
+            "eng_name":"onset",
+            "prompt":"주인공이 모험에 나섭니다. 왜 모험에 나서게 되는지, 어떤 마음으로 모험에 나서는지를 자세히 묘사합니다.",
+            "ban":[
+                "4-6"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of wardrobe, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_onset.png"
+        },
+        {
+            "id":20021,
+            "name":"변화",
+            "eng_name":"change",
+            "prompt":"주인공에게 큰 변화가 생깁니다. 변화가 생기게 되는 구체적인 사건과 변화 내용을 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of melting glaciers of greenland, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_change.png"
+        },
+        {
+            "id":20022,
+            "name":"위기",
+            "eng_name":"crisis",
+            "prompt":"주인공에게 위기가 발생합니다. 위기가 닥치게 되는 과정과 위기에 대해 자세히 묘사합니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of a boy walking on the rope looks precarious, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_crisis.png"
+        },
+        {
+            "id":20023,
+            "name":"결투",
+            "eng_name":"duel",
+            "prompt":"주인공이 누군가와 결투를 합니다. 왜 결투하게 되는지, 결투 과정과 결과는 어떻게 되는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of fencing duel, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800 ",
+            "illust":"story_duel.png"
+        },
+        {
+            "id":20024,
+            "name":"탈출",
+            "eng_name":"escape",
+            "prompt":"주인공이 현재 상황이나 장소에서 빠져나옵니다. 빠져나오는 과정을 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of a student escape from school chased by teachers, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_escape.png"
+        },
+        {
+            "id":20025,
+            "name":"발견",
+            "eng_name":"discovery",
+            "prompt":"주인공이 무언가를 새롭게 발견합니다. 무엇을 어떻게 발견했는지를 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of magnifying glass, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_discovery.png"
+        },
+        {
+            "id":20026,
+            "name":"재회",
+            "eng_name":"reunion",
+            "prompt":"주인공이 헤어졌던 친구와 다시 만납니다. 친구에 대해 자세히 묘사합니다. 주인공과 친구의 대화가 있습니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of two friends hugging each other, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_reunion.png"
+        },
+        {
+            "id":20027,
+            "name":"행복",
+            "eng_name":"happiness",
+            "prompt":"주인공이 행복해집니다. 왜 행복해지는지, 주인공이 어떻게 행복하게 느끼는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of smiling glasshopper fiddler, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_happiness.png"
+        },
+        {
+            "id":20028,
+            "name":"이별",
+            "eng_name":"breakup",
+            "prompt":"주인공이 친구와 이별하게 됩니다. 왜 이별하게 되는지, 주인공이 이별에 대해 어떻게 느끼는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"https://s.mj.run/5xFB0_reqFY extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of breakup, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_breakup.png"
+        },
+        {
+            "id":20029,
+            "name":"숲",
+            "eng_name":"forest",
+            "prompt":"주인공이 숲으로 갑니다. 숲을 배경으로 어떤 사건이 벌어집니다. 주인공이 왜 숲에 갔는지, 어떤 숲인지, 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of trees in forest, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_forest.png"
+        },
+        {
+            "id":20030,
+            "name":"궁전",
+            "eng_name":"palace",
+            "prompt":"주인공이 궁전에 갑니다. 궁전을 배경으로 어떤 사건이 벌어집니다. 주인공이 왜 궁전에 갔는지, 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of palace, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_palace.png"
+        },
+        {
+            "id":20031,
+            "name":"마을",
+            "eng_name":"village",
+            "prompt":"주인공이 마을에 갑니다. 마을을 배경으로 어떤 사건이 벌어집니다. 주인공이 왜 마을에 갔는지, 어떤 마을인지, 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of adorable village, birdeye view, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_village.png"
+        },
+        {
+            "id":20032,
+            "name":"농장",
+            "eng_name":"farm",
+            "prompt":"주인공이 농장에 갑니다. 농장을 배경으로 어떤 사건이 벌어집니다. 주인공이 왜 농장에 갔는지, 누구의 농장인지, 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming mischievous beautiful psychedelic image of a yellow wheat field with a red barn behind it, stained glass, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_farm.png"
+        },
+        {
+            "id":20033,
+            "name":"바다",
+            "eng_name":"sea",
+            "prompt":"주인공이 바다에 갑니다. 바다를 배경으로 어떤 사건이 벌어집니다. 주인공이 왜 바다에 갔는지, 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of the great wave of kanagawa, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800 ",
+            "illust":"story_sea.png"
+        },
+        {
+            "id":20034,
+            "name":"집",
+            "eng_name":"home",
+            "prompt":"주인공이 집으로 돌아옵니다. 주인공의 가족과 등장 인물들이 같이 대화를 나눕니다.",
+            "ban":[
+                "1"
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of living room, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_home.png"
+        },
+        {
+            "id":20035,
+            "name":"마법",
+            "eng_name":"magic",
+            "prompt":"누군가가 마법을 사용하거나 마법같은 일이 벌어집니다. 사건에 대해 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of a magician with an hat holding a magic wand --ar 3:4",
+            "illust":"story_magic.png"
+        },
+        {
+            "id":20036,
+            "name":"하늘",
+            "eng_name":"sky",
+            "prompt":"주인공이 하늘을 날게 됩니다. 어떻게 하늘을 날게 되는지,하늘을 날면서 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of a blue sky with white clouds , stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4",
+            "illust":"story_sky.png"
+        },
+        {
+            "id":20037,
+            "name":"학교",
+            "eng_name":"school",
+            "prompt":"주인공이 학교에 가게 됩니다. 학교를 배경으로 어떤 사건이 벌어집니다. 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of school building and students, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --v 5.1 --ar 3:4 --c 90 --s 800",
+            "illust":"story_school.png"
+        },
+        {
+            "id":20038,
+            "name":"도시",
+            "eng_name":"city",
+            "prompt":"주인공이 도시에 갑니다. 도시에서 어떤 사건과 우연히 조우하게 됩니다. 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of the flickering city light, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_city.png"
+        },
+        {
+            "id":20039,
+            "name":"납치",
+            "eng_name":"kidnap",
+            "prompt":"누군가가 납치됩니다. 어떤 사건이 벌어지는지 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic, chained prisoner, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800 --v 5.1",
+            "illust":"story_kidnap.png"
+        },
+        {
+            "id":20040,
+            "name":"가족",
+            "eng_name":"family",
+            "prompt":"주인공의 가족에 대해 자세히 묘사합니다. 가족끼리 대화를 나눕니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of fox family in the living room, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --v 5.1 --ar 3:4 --c 90 --s 800",
+            "illust":"story_family.png"
+        },
+        {
+            "id":20041,
+            "name":"불신",
+            "eng_name":"distrust",
+            "prompt":"주인공이 주변 인물들로부터 불신을 받습니다. 주인공이 어떻게 불신받는지 대화를 통해 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"psychedelic image of shunned by people, stained glass --ar 3:4 --c 90 --s 800 ",
+            "illust":"story_distrust.png"
+        },
+        {
+            "id":20042,
+            "name":"비밀",
+            "eng_name":"secret",
+            "prompt":"주인공이 위험한 비밀을 발견합니다. 비밀에 대해 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"https://s.mj.run/01SCkNT5j3E extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of a woman wearing a hood, holding her index finger over the mouth with a silence sign , by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_secret.png"
+        },
+        {
+            "id":20043,
+            "name":"업보",
+            "eng_name":"karma",
+            "prompt":"주인공의 과거 행동으로 인해 그 결과를 치르게 됩니다. 좋은 행도을 했으면 좋은 결과를, 나쁜 행동을 했으면 나쁜 결과를 받습니다.",
+            "ban":[
+                "1",
+                "2-3"
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of a scale of justice, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_karma.png"
+        },
+        {
+            "id":20044,
+            "name":"외로움",
+            "eng_name":"loneliness",
+            "prompt":"주인공이 혼자가 되어 외로움을 겪게 됩니다. 혼자가 되어가는 상황과 주인공의 심정을 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of broken heart , by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
+            "illust":"story_loneliness.png"
+        },
+        {
+            "id":20045,
+            "name":"상실",
+            "eng_name":"loss",
+            "prompt":"주인공이 중요한 무언가를 잃어버리거나, 중요한 누군가와 헤어지게 됩니다. 상실한 대상과 과정에 대해 자세히 묘사합니다.",
+            "ban":[
+            ],
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of sobbing girl, lots of tears, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --c 90 --s 800 --ar 3:4",
+            "illust":"story_loss.png"
+        }
+
+
+
+
+    ]
+
+}

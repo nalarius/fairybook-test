@@ -1,0 +1,86 @@
+{
+    "name":"story endings",
+    "description":"이야기 엔딩 카드와 프롬프트 모음",
+    "story_endings":[
+        {
+            "id":30001,
+            "name":"행복",
+            "eng_name":"happiness",
+            "prompt":"이야기의 엔딩입니다. 주인공과 동료들은 모두 행복하게 잘 살았답니다.",
+            "illust_prompt":"extremely loveable adorable charming flamboyant mischievous beautiful psychedelic image of happy, stylized, pattern, vibrant, vivid Photograph --c 90 --s 800 --v 5.2 --ar 3:4",
+            "illust":"ending_happiness.png"
+        },
+        {
+            "id":30002,
+            "name":"비극",
+            "eng_name":"tragedy",
+            "prompt":"이야기의 엔딩입니다. 주인공은 슬픈 결말을 맞이합니다.",
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic scene of the drowned lady, calm face, closed eyes, under water, full body shot, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
+            "illust":"ending_tragedy.png"
+        },
+        {
+            "id":30003,
+            "name":"열림",
+            "eng_name":"open",
+            "prompt":"이야기의 엔딩입니다. 뚜렷한 결말 없이 이후로 이야기가 이어집니다.",
+            "illust_prompt":"https://s.mj.run/oaExpknC3DM extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of an open door, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, --ar 3:4 --c 90 --s 800",
+            "illust":"ending_open.png"
+        },
+        {
+            "id":30004,
+            "name":"뒤틀림",
+            "eng_name":"twisted",
+            "prompt":"이야기의 엔딩입니다. 예상치 못한 방향으로 사건이 전개되고 급하게 끝나버립니다.",
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of roller coaster, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, --ar 3:4 --c 90 --s 800",
+            "illust":"ending_twisted.png"
+        },
+        {
+            "id":30005,
+            "name":"되돌이",
+            "eng_name":"repeat",
+            "prompt":"이야기의 엔딩입니다. 주인공과 동료들은 처음 상황으로 돌아갑니다.",
+            "illust_prompt":"extremely mischievous beautiful psychedelic sign that reads \"START\" --v 5.2 --ar 3:4 --s 800",
+            "illust":"ending_repeat.png"
+        },
+        {
+            "id":30006,
+            "name":"교훈",
+            "eng_name":"lesson",
+            "prompt":"이야기의 엔딩입니다. 주인공은 큰 교훈을 얻습니다.",
+            "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of lightbulb, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, --ar 3:4 --c 90 --s 800 --v 5.1",
+            "illust":"ending_lesson.png"
+        },
+        {
+            "id":30007,
+            "name":"놀라움",
+            "eng_name":"surprise",
+            "prompt":"이야기의 엔딩입니다. 새롭운 사실이 밝혀지고 주인공은 크게 놀라게 됩니다.",
+            "illust_prompt":"boom --v 5.2 --ar 3:4",
+            "illust":"ending_surprise.png"
+        },
+        {
+            "id":30008,
+            "name":"꿈",
+            "eng_name":"dream",
+            "prompt":"이야기의 엔딩입니다. 이 이야기는 사실 꿈이었습니다. 주인공이 꿈에서 깨어납니다.",
+            "illust_prompt":"dream --v 5.2 --ar 3:4",
+            "illust":"ending_dream.png"
+        },
+        {
+            "id":30009,
+            "name":"뒤집힘",
+            "eng_name":"overturn",
+            "prompt":"이야기의 엔딩입니다. 흔한 이야기 같았지만 완선히 새로운 결말로 급선회합니다.",
+            "illust_prompt":"upside down, Rene Magritte --ar 3:4 --v 5.2",
+            "illust":"ending_overturn.png"
+        },
+        {
+            "id":30010,
+            "name":"집",
+            "eng_name":"home",
+            "prompt":"이야기의 엔딩입니다. 주인공은 집에 돌아와 가족과 재회합니다. 가족들과 모험에서 있었던 일들을 이야기합니다.",
+            "illust_prompt":"living room of fox family --v 5.2 --ar 3:4",
+            "illust":"ending_home.png"
+        }
+    ]
+}
