@@ -1,5 +1,12 @@
 # app.py
-import os, json, random
+import base64
+import html
+import json
+import os
+import random
+import re
+from datetime import datetime
+
 import streamlit as st
 from streamlit_image_select import image_select
 from gemini_client import generate_story_with_gemini, generate_image_with_gemini
@@ -9,6 +16,9 @@ st.set_page_config(page_title="한 줄 동화 만들기", page_icon="📖", layo
 JSON_PATH = "storytype.json"
 STYLE_JSON_PATH = "illust_styles.json"
 ILLUST_DIR = "illust"
+HTML_EXPORT_DIR = "html_exports"
+
+os.makedirs(HTML_EXPORT_DIR, exist_ok=True)
 
 @st.cache_data
 def load_story_types():
@@ -54,6 +64,7 @@ def ensure_state():
     st.session_state.setdefault("story_image_mime", "image/png")
     st.session_state.setdefault("story_image_style", None)
     st.session_state.setdefault("story_image_error", None)
+    st.session_state.setdefault("story_export_path", None)
 
 ensure_state()
 
@@ -75,6 +86,119 @@ def build_illustration_prompt(story: dict, style: dict, *, age: str, topic: str 
         f"Key story beats to depict: {summary}.\n"
         "Frame the main characters with warm lighting and make the scene gentle, hopeful, and safe for young readers."
     )
+
+
+def _slugify_filename(value: str) -> str:
+    """파일명에 안전하게 사용할 슬러그 생성."""
+    value = value.lower().strip()
+    value = re.sub(r"[^a-z0-9]+", "-", value)
+    slug = value.strip("-")
+    return slug or "story"
+
+
+def _build_story_html_document(
+    *,
+    title: str,
+    paragraphs: list[str],
+    age: str,
+    topic: str,
+    story_type: str,
+    style_name: str | None,
+    image_data_uri: str | None,
+) -> str:
+    escaped_title = html.escape(title)
+    topic_text = topic if topic else "(빈칸)"
+    meta_parts = [
+        f"<strong>나이대:</strong> {html.escape(age)}",
+        f"<strong>주제:</strong> {html.escape(topic_text)}",
+        f"<strong>이야기 유형:</strong> {html.escape(story_type)}",
+    ]
+    if style_name:
+        meta_parts.append(f"<strong>삽화 스타일:</strong> {html.escape(style_name)}")
+    meta_html = " · ".join(meta_parts)
+
+    paragraphs_html = "\n".join(
+        f"        <p>{html.escape(paragraph)}</p>" for paragraph in paragraphs
+    ) or "        <p>(본문이 없습니다)</p>"
+
+    image_section = ""
+    if image_data_uri:
+        image_section = (
+            "        <figure>\n"
+            f"            <img src=\"{image_data_uri}\" alt=\"{escaped_title} 삽화\" />\n"
+            "        </figure>\n"
+        )
+
+    return (
+        "<!DOCTYPE html>\n"
+        "<html lang=\"ko\">\n"
+        "<head>\n"
+        "    <meta charset=\"utf-8\" />\n"
+        f"    <title>{escaped_title}</title>\n"
+        "    <style>\n"
+        "        body { font-family: 'Noto Sans KR', sans-serif; margin: 2rem; background: #faf7f2; color: #2c2c2c; }\n"
+        "        header { margin-bottom: 2rem; }\n"
+        "        h1 { font-size: 2rem; margin-bottom: 0.5rem; }\n"
+        "        .meta { color: #555; margin-bottom: 1.5rem; }\n"
+        "        figure { text-align: center; margin: 2rem auto; }\n"
+        "        figure img { max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }\n"
+        "        p { line-height: 1.6; font-size: 1.05rem; margin-bottom: 1rem; }\n"
+        "    </style>\n"
+        "</head>\n"
+        "<body>\n"
+        "    <header>\n"
+        f"        <h1>{escaped_title}</h1>\n"
+        f"        <p class=\"meta\">{meta_html}</p>\n"
+        "    </header>\n"
+        "    <section>\n"
+        f"{image_section}{paragraphs_html}\n"
+        "    </section>\n"
+        "</body>\n"
+        "</html>\n"
+    )
+
+
+def export_story_to_html(
+    story: dict,
+    image_bytes: bytes | None,
+    image_mime: str | None,
+    *,
+    age: str,
+    topic: str | None,
+    story_type: str,
+    style_name: str | None,
+) -> str:
+    """이야기와 삽화를 하나의 HTML 파일로 저장하고 경로를 반환."""
+    os.makedirs(HTML_EXPORT_DIR, exist_ok=True)
+
+    title = (story.get("title") or "동화").strip()
+    paragraphs = story.get("paragraphs") or []
+
+    image_data_uri = None
+    if image_bytes:
+        mime = image_mime or "image/png"
+        encoded = base64.b64encode(image_bytes).decode("utf-8")
+        image_data_uri = f"data:{mime};base64,{encoded}"
+
+    html_doc = _build_story_html_document(
+        title=title or "동화",
+        paragraphs=[str(p) for p in paragraphs],
+        age=age,
+        topic=topic or "",
+        story_type=story_type,
+        style_name=style_name,
+        image_data_uri=image_data_uri,
+    )
+
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    slug = _slugify_filename(title)
+    filename = f"{timestamp}_{slug}.html"
+    export_path = os.path.join(HTML_EXPORT_DIR, filename)
+
+    with open(export_path, "w", encoding="utf-8") as f:
+        f.write(html_doc)
+
+    return export_path
 
 # ─────────────────────────────────────────────────────────────────────
 # 헤더/진행
@@ -159,6 +283,7 @@ elif st.session_state["step"] == 2:
         st.session_state["story_image"] = None
         st.session_state["story_image_error"] = None
         st.session_state["story_image_style"] = None
+        st.session_state["story_export_path"] = None
 
         with st.spinner("Gemini로 동화 생성 중..."):
             result = generate_story_with_gemini(
@@ -215,6 +340,7 @@ elif st.session_state["step"] == 2:
         style_info = st.session_state.get("story_image_style")
         image_bytes = st.session_state.get("story_image")
         image_error = st.session_state.get("story_image_error")
+        image_mime = st.session_state.get("story_image_mime")
 
         if style_info:
             st.caption(f"삽화 스타일: {style_info.get('name', '알 수 없음')}")
@@ -223,6 +349,26 @@ elif st.session_state["step"] == 2:
             st.image(image_bytes, caption="AI 생성 삽화", use_container_width=True)
         elif image_error:
             st.warning(f"삽화 생성 실패: {image_error}")
+
+        if st.button("HTML로 저장", use_container_width=True):
+            try:
+                export_path = export_story_to_html(
+                    story=story_data,
+                    image_bytes=image_bytes,
+                    image_mime=image_mime,
+                    age=age_val,
+                    topic=topic_val,
+                    story_type=selected_type["name"],
+                    style_name=style_info.get("name") if style_info else None,
+                )
+                st.session_state["story_export_path"] = export_path
+                st.success(f"HTML 저장 완료: {export_path}")
+            except Exception as exc:
+                st.error(f"HTML 저장 실패: {exc}")
+
+        last_export = st.session_state.get("story_export_path")
+        if last_export:
+            st.caption(f"최근 저장 파일: {last_export}")
 
         prompt_text = st.session_state.get("story_prompt")
         if prompt_text:
@@ -245,6 +391,7 @@ elif st.session_state["step"] == 2:
                 "story_image_mime",
                 "story_image_style",
                 "story_image_error",
+                "story_export_path",
             ]:
                 st.session_state.pop(k, None)
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
@@ -267,6 +414,7 @@ elif st.session_state["step"] == 2:
                 "story_image_mime",
                 "story_image_style",
                 "story_image_error",
+                "story_export_path",
             ]:
                 st.session_state.pop(k, None)
             st.session_state["step"] = 1

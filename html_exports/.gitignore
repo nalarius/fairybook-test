@@ -1,0 +1,5 @@
+# Ignore generated HTML exports
+*.html
+
+# Allow this placeholder file to keep the directory in git
+!/.gitignore
