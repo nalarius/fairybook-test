@@ -6,8 +6,10 @@ import os
 import random
 import re
 from datetime import datetime
+from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_image_select import image_select
 from gemini_client import generate_story_with_gemini, generate_image_with_gemini
 
@@ -17,8 +19,9 @@ JSON_PATH = "storytype.json"
 STYLE_JSON_PATH = "illust_styles.json"
 ILLUST_DIR = "illust"
 HTML_EXPORT_DIR = "html_exports"
+HTML_EXPORT_PATH = Path(HTML_EXPORT_DIR)
 
-os.makedirs(HTML_EXPORT_DIR, exist_ok=True)
+HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
 @st.cache_data
 def load_story_types():
@@ -46,7 +49,8 @@ illust_styles = load_illust_styles()
 # 세션 상태: '없을 때만' 기본값. 절대 무조건 대입하지 않음.
 # ─────────────────────────────────────────────────────────────────────
 def ensure_state():
-    st.session_state.setdefault("step", 1)                 # 1: 입력, 2: 유형/생성
+    st.session_state.setdefault("step", 0)                 # 0: 선택, 1: 입력, 2: 유형/생성, 3: 보기
+    st.session_state.setdefault("mode", None)
     st.session_state.setdefault("age", None)               # 확정된 값(제출 후 저장)
     st.session_state.setdefault("topic", None)             # 확정된 값(제출 후 저장)
     # 입력폼 위젯 전용 임시 키(위젯 값 저장용). 최초 렌더에만 기본값 세팅
@@ -65,11 +69,14 @@ def ensure_state():
     st.session_state.setdefault("story_image_style", None)
     st.session_state.setdefault("story_image_error", None)
     st.session_state.setdefault("story_export_path", None)
+    st.session_state.setdefault("selected_export", None)
 
 ensure_state()
 
 def go_step(n: int):
     st.session_state["step"] = n
+    if n in (1, 2):
+        st.session_state["mode"] = "create"
 
 
 def build_illustration_prompt(story: dict, style: dict, *, age: str, topic: str | None, story_type: str) -> str:
@@ -86,6 +93,15 @@ def build_illustration_prompt(story: dict, style: dict, *, age: str, topic: str 
         f"Key story beats to depict: {summary}.\n"
         "Frame the main characters with warm lighting and make the scene gentle, hopeful, and safe for young readers."
     )
+
+
+def list_html_exports() -> list[Path]:
+    """저장된 HTML 파일 목록(최신순)을 반환."""
+    try:
+        files = [p for p in HTML_EXPORT_PATH.glob("*.html") if p.is_file()]
+        return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
+    except Exception:
+        return []
 
 
 def _slugify_filename(value: str) -> str:
@@ -169,7 +185,7 @@ def export_story_to_html(
     style_name: str | None,
 ) -> str:
     """이야기와 삽화를 하나의 HTML 파일로 저장하고 경로를 반환."""
-    os.makedirs(HTML_EXPORT_DIR, exist_ok=True)
+    HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
     title = (story.get("title") or "동화").strip()
     paragraphs = story.get("paragraphs") or []
@@ -193,24 +209,59 @@ def export_story_to_html(
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     slug = _slugify_filename(title)
     filename = f"{timestamp}_{slug}.html"
-    export_path = os.path.join(HTML_EXPORT_DIR, filename)
+    export_path = HTML_EXPORT_PATH / filename
 
-    with open(export_path, "w", encoding="utf-8") as f:
+    with export_path.open("w", encoding="utf-8") as f:
         f.write(html_doc)
 
-    return export_path
+    return str(export_path)
 
 # ─────────────────────────────────────────────────────────────────────
 # 헤더/진행
 # ─────────────────────────────────────────────────────────────────────
 st.title("📖 한 줄 주제로 동화 만들기")
-st.progress(0.5 if st.session_state["step"] == 1 else 1.0)
-st.caption("간단한 2단계로 동화를 만들어보세요.")
+progress_placeholder = st.empty()
+mode = st.session_state.get("mode")
+current_step = st.session_state["step"]
+
+if mode == "create" and current_step in (1, 2):
+    progress_placeholder.progress(0.5 if current_step == 1 else 1.0)
+else:
+    progress_placeholder.empty()
+
+if current_step == 0:
+    st.caption("원하는 작업을 선택해주세요.")
+elif mode == "create":
+    st.caption("간단한 2단계로 동화를 만들어보세요.")
+else:
+    st.caption("저장된 동화를 살펴볼 수 있어요.")
 
 # ─────────────────────────────────────────────────────────────────────
 # STEP 1 — 나이대/주제 입력 (form으로 커밋 시점 고정, 확정 키와 분리)
 # ─────────────────────────────────────────────────────────────────────
-if st.session_state["step"] == 1:
+if current_step == 0:
+    st.subheader("어떤 작업을 하시겠어요?")
+    exports_available = bool(list_html_exports())
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("✏️ 동화 만들기", use_container_width=True):
+            st.session_state["mode"] = "create"
+            st.session_state["step"] = 1
+    with c2:
+        view_clicked = st.button(
+            "📂 저장본 보기",
+            use_container_width=True,
+            disabled=not exports_available,
+        )
+        if view_clicked:
+            st.session_state["mode"] = "view"
+            st.session_state["step"] = 3
+
+    if not exports_available:
+        st.caption("저장된 HTML 파일이 아직 없습니다. 먼저 동화를 만들어 저장해 주세요.")
+
+elif current_step == 1:
     st.subheader("1단계. 나이대와 주제를 고르세요")
 
     # 폼 제출 전까지는 age/topic을 건드리지 않음
@@ -244,7 +295,7 @@ if st.session_state["step"] == 1:
 # ─────────────────────────────────────────────────────────────────────
 # STEP 2 — 이야기 유형 선택 + 생성
 # ─────────────────────────────────────────────────────────────────────
-elif st.session_state["step"] == 2:
+elif current_step == 2:
     st.subheader("2단계. 이야기 유형을 고르세요")
 
     rand8 = st.session_state["rand8"]
@@ -362,6 +413,7 @@ elif st.session_state["step"] == 2:
                     style_name=style_info.get("name") if style_info else None,
                 )
                 st.session_state["story_export_path"] = export_path
+                st.session_state["selected_export"] = export_path
                 st.success(f"HTML 저장 완료: {export_path}")
             except Exception as exc:
                 st.error(f"HTML 저장 실패: {exc}")
@@ -392,6 +444,7 @@ elif st.session_state["step"] == 2:
                 "story_image_style",
                 "story_image_error",
                 "story_export_path",
+                "selected_export",
             ]:
                 st.session_state.pop(k, None)
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
@@ -415,7 +468,69 @@ elif st.session_state["step"] == 2:
                 "story_image_style",
                 "story_image_error",
                 "story_export_path",
+                "selected_export",
             ]:
                 st.session_state.pop(k, None)
+            st.session_state["mode"] = "create"
+            st.session_state["step"] = 1
+            st.rerun()
+
+elif current_step == 3:
+    st.subheader("저장된 동화 보기")
+    exports = list_html_exports()
+
+    if not exports:
+        st.info("저장된 HTML 파일이 없습니다. 먼저 동화를 생성해 HTML로 저장해 주세요.")
+    else:
+        options = []
+        for path in exports:
+            modified = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+            options.append(f"{path.name} · {modified}")
+
+        selected_path_str = st.session_state.get("selected_export")
+        default_index = 0
+        if selected_path_str:
+            try:
+                default_index = next(
+                    idx for idx, path in enumerate(exports) if str(path) == selected_path_str
+                )
+            except StopIteration:
+                default_index = 0
+
+        selection = st.selectbox(
+            "열람할 파일을 선택하세요",
+            options,
+            index=default_index,
+        )
+
+        selected_path = exports[options.index(selection)]
+        st.session_state["selected_export"] = str(selected_path)
+
+        try:
+            html_content = selected_path.read_text("utf-8")
+        except Exception as exc:
+            st.error(f"파일을 여는 데 실패했습니다: {exc}")
+        else:
+            st.download_button(
+                "HTML 다운로드",
+                data=html_content,
+                file_name=selected_path.name,
+                mime="text/html",
+                use_container_width=True,
+            )
+            st.caption(f"파일 경로: {selected_path}")
+            components.html(html_content, height=700, scrolling=True)
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("← 선택 화면으로", use_container_width=True):
+            st.session_state["mode"] = None
+            st.session_state["step"] = 0
+            st.session_state["selected_export"] = None
+            st.session_state["story_export_path"] = None
+            st.rerun()
+    with c2:
+        if st.button("✏️ 새 동화 만들기", use_container_width=True):
+            st.session_state["mode"] = "create"
             st.session_state["step"] = 1
             st.rerun()
