@@ -1,0 +1,46 @@
+{
+    "name":"illust styles",
+    "description":"동화책 일러스트 스타일 모음",
+    "illust_styles":[
+        {
+            "name":"Quentin Blake",
+            "style":"Quentin Blake, Loose and Energetic Lines, Whimsical Characters, Vibrant Watercolors, Expressive Movements, Slight Abstraction, Humorous Details, Exaggerated Features, Vibrant Color"
+        },
+        {
+            "name":"Beatrix Potter",
+            "style":"Beatrix Potter, Detailed Watercolors, Realistic Animal Characters, English Countryside Scenery, Soft and Muted Colors, Delicate Lines, Anthropomorphism, Narrative Scenes, Vibrant Color"
+        },
+        {
+            "name":"Maurice Sendak",
+            "style":"Maurice Sendak, Fantastical Imagery, Detailed Pen and Ink, Unusual and Often Wild Creatures, Dynamic and Dramatic Scenes, Rich and Subtle Color Palettes, Deeply Expressive Characters, Emotional Depth and Complexity, Vibrant Color"
+        },
+        {
+            "name":"Eric Carle",
+            "style":"Eric Carle, Collage Art, Thick Textures, Bold Colors, Simple Shapes, Nature Themes, Natural and Animal Motifs, Vibrant Color, Masterpiece, Best Quality"
+        },
+        {
+            "name":"E.H. Shepard",
+            "style":"E.H. Shepard, Line Drawing, Detailed Cross-Hatching, Subtle Shading, Realistic Proportions, Charming Characters, Evocative Landscape Settings, Simplicity and Clarity, Heartwarming Scenes, Vibrant Color"
+        },
+        {
+            "name":"Tasha Tudor",
+            "style":"Tasha Tudor, Detailed Watercolors, Vintage or Period Themes, Rural Life and Nature Scenes, Charming and Whimsical Characters, Soft and Warm Color Palette, Homely and Domestic Settings, Feminine and Delicate Details, Intricate Patterns and Textures"
+        },
+        {
+            "name":"Jan Brett",
+            "style":"Jan Brett, Detailed Borders and Frames, Complex and Intricate Patterns, Rich and Vibrant Colors, Highly Detailed Settings, Anthropomorphic Animal Characters, Cross-cultural Themes, Layered and Multidimensional Storytelling, Folklore and Traditional Motifs"
+        },
+        {
+            "name":"Chris Van Allsburg",
+            "style":"Chris Van Allsburg, Hyper-realistic Detail, Chiaroscuro (Light and Shadow), Dreamlike and Surreal Scenarios, Muted and Monochromatic Color Palette, Dramatic Perspectives, Intricate Textures, Underlying Mystery and Suspense, Emotional Depth"
+        },
+        {
+            "name":"Dr. Seuss",
+            "style":"Dr. Seuss, Whimsical Characters, Exaggerated Features, Bold and Vibrant Colors, Simple and Fluid Lines, Surreal Landscapes, Repetitive Patterns, Dynamic Motion, Humorous and Playful Scenes"
+        },
+        {
+            "name":"Jon Klassen",
+            "style":"Jon Klassen, Minimalist Design, Muted Color Palettes, Subtle Humor, Simple Shapes and Lines, Anthropomorphic Animal Characters, Understated Emotion, Clever Visual Narratives, Textured Digital Art"
+        }
+    ]
+}
