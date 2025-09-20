@@ -10,11 +10,11 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 ## Story Creation Flow
 1. Launch `streamlit run app.py` (headless flag permitted).
 2. On Step 0 select **✏️ 동화 만들기**.
-3. Provide an idea, choose each available age band, and advance to Step 2.
-4. Verify eight archetype cards load with the expected thumbnails.
-5. Generate at least two stories:
-   - Confirm story text appears under the chosen card heading.
-   - Download the plain-text export and open it locally.
+3. Step 1: Provide an idea, try each age band, and confirm the form advances.
+4. Step 2: Verify eight story-type cards load with the expected thumbnails and that clicking **제목 만들기** produces a title.
+5. Step 3: Ensure four narrative cards appear, switch between them, and trigger **이야기 만들기**.
+6. Step 4: Confirm the loading spinner appears, the story and illustration render, and downloads work.
+7. Generate at least two stories covering different type/card combinations, then download the plain-text export and open it locally.
 
 ## Illustration Checks
 - Ensure an illustration displays for at least one story (retry if quota or safety blocks trigger).

@@ -37,6 +37,39 @@ _STYLE_JSON_PATH = Path("illust_styles.json")
 _ILLUST_STYLES_CACHE: list[dict] | None = None
 
 
+def _extract_text_from_response(resp) -> str:
+    """Gemini SDK 응답에서 텍스트 본문을 꺼낸다."""
+    if hasattr(resp, "text") and resp.text:
+        return str(resp.text)
+
+    try:
+        candidates = getattr(resp, "candidates", []) or []
+        if candidates:
+            content = getattr(candidates[0], "content", None)
+            parts = getattr(content, "parts", None) if content else None
+            if parts:
+                return " ".join([
+                    getattr(part, "text", "") for part in parts if getattr(part, "text", "")
+                ])
+    except Exception:
+        return ""
+
+    return ""
+
+
+def _strip_json_code_fence(text: str) -> str:
+    """```json fences or labels 제거."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.strip("`")
+        filtered_lines = [
+            line for line in cleaned.splitlines()
+            if not line.strip().lower().startswith("json")
+        ]
+        cleaned = "\n".join(filtered_lines).strip()
+    return cleaned
+
+
 def _load_illust_styles() -> list[dict]:
     """illust_styles.json에서 사용할 수 있는 스타일 목록을 반환."""
     global _ILLUST_STYLES_CACHE
@@ -65,55 +98,70 @@ def _load_illust_styles() -> list[dict]:
 
     _ILLUST_STYLES_CACHE = cleaned
     return _ILLUST_STYLES_CACHE
-
-def _build_story_prompt(age: str, topic: str | None, story_type_name: str) -> str:
-    """입력(나이대/주제/유형)으로 짧은 동화 JSON을 요구하는 프롬프트 구성."""
+def _build_title_prompt(
+    age: str,
+    topic: str | None,
+    story_type_name: str,
+    story_type_prompt: str,
+) -> str:
     topic_clean = (topic or "").strip()
     return f"""당신은 어린이를 위한 동화 작가입니다.  
-입력으로 나이대, 주제, 이야기 유형이 주어집니다.  
-이에 맞춰 **풍부하고 재미있는 동화**를 만들어 주세요.  
+입력으로 나이대, 주제, 그리고 이야기 유형 설명이 주어집니다.  
+이 정보를 활용하여 동화의 분위기와 핵심 갈등을 담은 **인상적인 한국어 제목**을 하나 만들어 주세요.  
 
-- 반드시 '나이대'에 적합한 어휘와 문장 길이를 사용하고, 이해하기 쉽게 설명해주세요.  
-- '주제'는 단순히 언급만 하지 말고, 이야기 전체의 중심 갈등이나 사건으로 녹여내어야 합니다.  
-- '유형'에 맞게 이야기 구조를 정하고, 모험, 환상, 교훈, 유머 등 해당 유형의 매력을 충분히 살려주세요.  
+- 나이대에 맞춘 어휘와 리듬을 고려하세요.  
+- 이야기 유형 설명을 토대로 어떤 모험이나 정서를 담을지 상상하세요.  
+- 주제 아이디어가 있다면 제목에 자연스럽게 녹여주세요.  
+- 제목은 25자 이내로 간결하게 작성하고, 구두점은 사용하지 않습니다.  
 
-동화는 다음 요소를 반드시 포함해야 합니다:  
-1. **매력적인 주인공**: 개성과 감정을 가진 주인공을 소개하세요.  
-2. **갈등과 사건 전개**: 주제와 관련된 문제나 모험이 일어나도록 하고, 점차 긴장감을 쌓아 올리세요.  
-3. **다양한 장면 묘사**: 배경(계절, 장소, 분위기)을 구체적으로 묘사하여 독자가 그림을 떠올릴 수 있게 하세요.  
-4. **대화**: 인물들이 감정을 드러낼 수 있도록 대화를 적극적으로 넣으세요.  
-5. **해결과 교훈**: 마지막에는 주제와 연결된 따뜻한 깨달음, 교훈, 혹은 유쾌한 반전을 담아 마무리하세요.  
+[입력]
+- 나이대: {age}
+- 주제: {topic_clean if topic_clean else "(빈칸)"}
+- 이야기 유형: {story_type_name}
+- 이야기 유형 설명: {story_type_prompt.strip()}
 
-동화는 최소 500자 이상, 풍부한 묘사와 사건 전개로 아이가 몰입할 수 있게 작성하세요.  
-
-[요구사항]  
-- 결과는 JSON 형식으로만 출력합니다. (설명/추가 텍스트 금지)  
-- JSON 구조:  
+[출력 형식]
 {{
-  "title": "동화 제목",
+  "title": "제목"
+}}
+"""
+
+
+def _build_story_prompt(
+    *,
+    age: str,
+    topic: str | None,
+    title: str,
+    story_type_name: str,
+    story_card_name: str,
+    story_card_prompt: str,
+) -> str:
+    topic_clean = (topic or "").strip()
+    safe_title = json.dumps(title.strip(), ensure_ascii=False) if title else '"동화"'
+    return f"""당신은 어린이를 위한 동화 작가입니다.  
+입력으로 나이대, 주제, 확정된 제목, 이야기 유형, 그리고 상세한 이야기 카드 설명이 주어집니다.  
+이 정보를 모두 반영하여 **풍부하고 몰입감 있는 한국어 동화**를 완성하세요.  
+
+- 제공된 제목을 그대로 사용하며, 제목에 어울리는 분위기와 상징을 전개하세요.  
+- 이야기 카드 설명을 중심 갈등과 사건으로 적극 활용하세요.  
+- 나이대에 맞는 문장 길이와 어휘를 선택하고, 주제를 이야기 전체의 정서와 교훈으로 연결하세요.  
+- 장면 묘사, 인물 감정, 대화를 고르게 넣어 아이가 쉽게 상상할 수 있도록 하세요.  
+
+동화는 최소 500자 이상이며, 다음 JSON 구조로만 출력합니다.  
+{{
+  "title": {safe_title},
   "paragraphs": ["첫 단락", "둘째 단락", "셋째 단락 이상"]
 }}  
-- 단락은 최소 3개 이상 작성하세요.  
-- 각 단락은 2~4문장 정도로 구성하며, 생생한 묘사와 간단한 대화를 포함하세요.  
-- '나이대'에 맞는 어휘를 사용하고, '주제'가 사건 전개의 중심이 되도록 하세요.  
-- '이야기 유형'에 맞게 모험, 환상, 유머, 교훈 등의 색깔을 살리세요.  
-- 마지막 단락은 따뜻한 결말이나 작은 교훈으로 마무리하세요.  
+- 단락은 최소 3개 이상이며, 각 단락은 2~4문장으로 작성하세요.  
+- 마지막 단락은 따뜻한 결말, 교훈 또는 작은 반전을 담아 마무리하세요.  
 
-[입력]  
-- 나이대: {age}  
-- 주제: {topic_clean if topic_clean else "(빈칸)"}  
-- 이야기 유형: {story_type_name}  
-
-[출력 예시]  
-{{
-  "title": "토끼와 모자의 모험",
-  "paragraphs": [
-    "햇살이 가득한 들판에서 작은 토끼가 커다란 모자를 발견했습니다.",
-    "\"이 모자를 쓰면 하늘을 날 수 있을까?\" 토끼는 설레는 마음으로 속삭였습니다.",
-    "친구들이 몰려와 함께 모자를 쓰고 달리기 시작했지요. 모두 웃음소리를 터뜨렸습니다.",
-    "마지막에 토끼는 깨달았어요. '모자가 아니라 우리 우정이 가장 큰 마법이구나!'"
-  ]
-}}
+[입력]
+- 나이대: {age}
+- 주제: {topic_clean if topic_clean else "(빈칸)"}
+- 제목: {title.strip()}
+- 이야기 유형: {story_type_name}
+- 이야기 카드 이름: {story_card_name}
+- 이야기 카드 설명: {story_card_prompt.strip()}
 """
 
 def build_image_prompt(
@@ -122,6 +170,7 @@ def build_image_prompt(
     age: str,
     topic: str | None,
     story_type_name: str,
+    story_card_name: str | None = None,
 ) -> dict:
     """이야기와 스타일 정보를 바탕으로 이미지 생성 프롬프트를 구성."""
     if not API_KEY:
@@ -156,6 +205,7 @@ def build_image_prompt(
 - Age Group: {age}
 - Topic: {topic_text}
 - Story Type: {story_type_name}
+- Narrative Card: {story_card_name or "(선택 안 됨)"}
 - Summary: {summary}
 
 [Style Reference]
@@ -178,18 +228,7 @@ def build_image_prompt(
     except Exception as exc:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
-    prompt_text = ""
-    if hasattr(resp, "text") and resp.text:
-        prompt_text = resp.text
-    else:
-        try:
-            cands = getattr(resp, "candidates", []) or []
-            if cands and hasattr(cands[0], "content") and getattr(cands[0].content, "parts", None):
-                parts = cands[0].content.parts
-                prompt_text = " ".join([getattr(p, "text", "") for p in parts if getattr(p, "text", "")])
-        except Exception:
-            pass
-
+    prompt_text = _extract_text_from_response(resp)
     final_prompt = (prompt_text or "").strip()
     if not final_prompt:
         return {"error": "이미지 프롬프트 생성이 실패했습니다."}
@@ -208,7 +247,48 @@ def build_image_prompt(
     }
 
 
-def generate_story_with_gemini(age: str, topic: str | None, story_type_name: str) -> dict:
+def generate_title_with_gemini(
+    age: str,
+    topic: str | None,
+    story_type_name: str,
+    story_type_prompt: str,
+) -> dict:
+    """Gemini로 동화 제목을 생성."""
+    if not API_KEY:
+        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+
+    prompt = _build_title_prompt(age, topic, story_type_name, story_type_prompt)
+    try:
+        model = genai.GenerativeModel(_MODEL)
+        resp = model.generate_content(prompt)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    text = _extract_text_from_response(resp)
+    if not text:
+        return {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)"}
+
+    try:
+        payload = json.loads(_strip_json_code_fence(text))
+    except json.JSONDecodeError as exc:
+        return {"error": f"JSONDecodeError: {exc}"}
+
+    title = (payload.get("title") or "").strip()
+    if not title:
+        return {"error": "제목을 찾지 못했습니다.", "raw": payload}
+
+    return {"title": title}
+
+
+def generate_story_with_gemini(
+    age: str,
+    topic: str | None,
+    *,
+    title: str,
+    story_type_name: str,
+    story_card_name: str,
+    story_card_prompt: str,
+) -> dict:
     """
     Gemini로 동화를 생성해 {title, paragraphs[]} dict를 반환.
     실패 시 {"error": "..."} 반환.
@@ -216,43 +296,39 @@ def generate_story_with_gemini(age: str, topic: str | None, story_type_name: str
     if not API_KEY:
         return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
 
-    prompt = _build_story_prompt(age, topic, story_type_name)
+    prompt = _build_story_prompt(
+        age=age,
+        topic=topic,
+        title=title,
+        story_type_name=story_type_name,
+        story_card_name=story_card_name,
+        story_card_prompt=story_card_prompt,
+    )
     try:
         model = genai.GenerativeModel(_MODEL)
         resp = model.generate_content(prompt)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
 
-        # 텍스트 확보 (text 또는 candidates.parts)
-        text = ""
-        if hasattr(resp, "text") and resp.text:
-            text = resp.text
-        else:
-            try:
-                cands = getattr(resp, "candidates", []) or []
-                if cands and hasattr(cands[0], "content") and getattr(cands[0].content, "parts", None):
-                    parts = cands[0].content.parts
-                    text = " ".join([getattr(p, "text", "") for p in parts if getattr(p, "text", "")])
-            except Exception:
-                pass
+    text = _extract_text_from_response(resp)
+    if not text:
+        return {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)"}
 
-        if not text:
-            return {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)"}
+    try:
+        data = json.loads(_strip_json_code_fence(text))
+    except json.JSONDecodeError as exc:
+        return {"error": f"JSONDecodeError: {exc}"}
 
-        # 코드블록(```json ... ```) 제거
-        t = text.strip()
-        if t.startswith("```"):
-            t = t.strip("`")
-            t = "\n".join([ln for ln in t.splitlines() if not ln.strip().lower().startswith("json")])
+    paragraphs = data.get("paragraphs") or []
+    if not isinstance(paragraphs, list) or not paragraphs:
+        return {"error": "반환 JSON 형식이 예상과 다릅니다.", "raw": data}
 
-        data = json.loads(t)
-        title = (data.get("title") or "").strip()
-        paragraphs = data.get("paragraphs") or []
-        if not title or not isinstance(paragraphs, list) or not paragraphs:
-            return {"error": "반환 JSON 형식이 예상과 다릅니다.", "raw": data}
+    title_value = (data.get("title") or title or "").strip() or title
+    cleaned_paragraphs = [str(p).strip() for p in paragraphs if str(p).strip()]
+    if not cleaned_paragraphs:
+        return {"error": "본문 단락을 찾지 못했습니다.", "raw": data}
 
-        return {"title": title, "paragraphs": [str(p).strip() for p in paragraphs if str(p).strip()]}
-
-    except Exception as e:
-        return {"error": f"{type(e).__name__}: {e}"}
+    return {"title": title_value, "paragraphs": cleaned_paragraphs}
 
 
 def _coerce_bytes(value):
