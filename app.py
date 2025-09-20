@@ -70,6 +70,7 @@ def ensure_state():
     st.session_state.setdefault("story_image_error", None)
     st.session_state.setdefault("story_export_path", None)
     st.session_state.setdefault("selected_export", None)
+    st.session_state.setdefault("is_generating", False)
 
 ensure_state()
 
@@ -281,89 +282,118 @@ elif current_step == 1:
 # STEP 2 — 이야기 유형 선택 + 생성
 # ─────────────────────────────────────────────────────────────────────
 elif current_step == 2:
-    st.subheader("2단계. 이야기 유형을 고르세요")
-
     rand8 = st.session_state["rand8"]
-    image_paths = [os.path.join(ILLUST_DIR, t["illust"]) for t in rand8]
-    captions    = [t["name"] for t in rand8]
-
-    st.caption("아래 썸네일 8개 중 하나를 클릭하세요. (한 줄에 4개씩 보이는 형태)")
-    sel_idx = image_select(
-        label="",
-        images=image_paths,
-        captions=captions,
-        use_container_width=True,
-        return_value="index",
-        key="rand8_picker"  # 이미지만 선택(soft rerun) — 다른 상태는 건드리지 않음
-    )
-    if sel_idx is not None:
-        st.session_state["selected_type_idx"] = sel_idx
-
     selected_type = rand8[st.session_state["selected_type_idx"]]
 
     # STEP1에서 '확정된 값'만 읽는다 (위젯 재바인딩 절대 금지)
     age_val   = st.session_state["age"] if st.session_state["age"] else "6-8"
     topic_val = st.session_state["topic"] if (st.session_state["topic"] is not None) else ""
 
-    st.success(f"선택된 이야기 유형: **{selected_type['name']}**")
-    st.write(f"나이대: **{age_val}**, 주제: **{topic_val if topic_val else '(빈칸)'}**")
+    if st.session_state.get("is_generating"):
+        st.header("동화를 준비하고 있어요 ✨")
+        st.caption("조금만 기다려 주세요. 이야기와 삽화를 생성하는 중입니다.")
 
-    if not illust_styles:
-        st.info("illust_styles.json을 찾지 못해 삽화는 생성되지 않습니다.")
-
-    # 스토리 + 삽화 생성
-    if st.button("동화 만들기", type="primary", use_container_width=True):
-        st.session_state["story_error"] = None
-        st.session_state["story_result"] = None
-        st.session_state["story_prompt"] = None
-        st.session_state["story_image"] = None
-        st.session_state["story_image_error"] = None
-        st.session_state["story_image_style"] = None
-        st.session_state["story_export_path"] = None
-
-        with st.spinner("Gemini로 동화 생성 중..."):
+        with st.spinner("Gemini로 동화와 삽화를 준비 중..."):
             result = generate_story_with_gemini(
                 age=age_val,
                 topic=topic_val or None,
                 story_type_name=selected_type["name"],
             )
 
-        if "error" in result:
-            st.session_state["story_error"] = result["error"]
-        else:
-            st.session_state["story_result"] = result
-
-            prompt_data = build_image_prompt(
-                story=result,
-                age=age_val,
-                topic=topic_val,
-                story_type_name=selected_type["name"],
-            )
-
-            if "error" in prompt_data:
-                st.session_state["story_image_error"] = prompt_data["error"]
+            if "error" in result:
+                st.session_state["story_error"] = result["error"]
+                st.session_state["story_result"] = None
+                st.session_state["story_prompt"] = None
+                st.session_state["story_image"] = None
+                st.session_state["story_image_error"] = None
+                st.session_state["story_image_style"] = None
+                st.session_state["story_image_mime"] = "image/png"
             else:
-                st.session_state["story_prompt"] = prompt_data["prompt"]
-                st.session_state["story_image_style"] = {
-                    "name": prompt_data.get("style_name"),
-                    "style": prompt_data.get("style_text"),
-                }
+                st.session_state["story_error"] = None
+                st.session_state["story_result"] = result
 
-                with st.spinner("Gemini로 삽화 생성 중..."):
+                prompt_data = build_image_prompt(
+                    story=result,
+                    age=age_val,
+                    topic=topic_val,
+                    story_type_name=selected_type["name"],
+                )
+
+                if "error" in prompt_data:
+                    st.session_state["story_prompt"] = None
+                    st.session_state["story_image_error"] = prompt_data["error"]
+                    st.session_state["story_image_style"] = None
+                    st.session_state["story_image"] = None
+                    st.session_state["story_image_mime"] = "image/png"
+                else:
+                    st.session_state["story_prompt"] = prompt_data["prompt"]
+                    st.session_state["story_image_style"] = {
+                        "name": prompt_data.get("style_name"),
+                        "style": prompt_data.get("style_text"),
+                    }
+
                     image_response = generate_image_with_gemini(prompt_data["prompt"])
 
-                if "error" in image_response:
-                    st.session_state["story_image_error"] = image_response["error"]
-                else:
-                    st.session_state["story_image"] = image_response.get("bytes")
-                    st.session_state["story_image_mime"] = image_response.get("mime_type", "image/png")
+                    if "error" in image_response:
+                        st.session_state["story_image_error"] = image_response["error"]
+                        st.session_state["story_image"] = None
+                        st.session_state["story_image_mime"] = "image/png"
+                    else:
+                        st.session_state["story_image_error"] = None
+                        st.session_state["story_image"] = image_response.get("bytes")
+                        st.session_state["story_image_mime"] = image_response.get("mime_type", "image/png")
+
+        st.session_state["is_generating"] = False
+        st.rerun()
+        st.stop()
+
+    story_data = st.session_state.get("story_result")
+
+    if story_data is None:
+        st.subheader("2단계. 이야기 유형을 고르세요")
+        image_paths = [os.path.join(ILLUST_DIR, t["illust"]) for t in rand8]
+        captions    = [t["name"] for t in rand8]
+
+        st.caption("아래 썸네일 8개 중 하나를 클릭하세요. (한 줄에 4개씩 보이는 형태)")
+        sel_idx = image_select(
+            label="",
+            images=image_paths,
+            captions=captions,
+            use_container_width=True,
+            return_value="index",
+            key="rand8_picker"  # 이미지만 선택(soft rerun) — 다른 상태는 건드리지 않음
+        )
+        if sel_idx is not None:
+            st.session_state["selected_type_idx"] = sel_idx
+            selected_type = rand8[st.session_state["selected_type_idx"]]
+
+        st.success(f"선택된 이야기 유형: **{selected_type['name']}**")
+        st.write(f"나이대: **{age_val}**, 주제: **{topic_val if topic_val else '(빈칸)'}**")
+
+        if not illust_styles:
+            st.info("illust_styles.json을 찾지 못해 삽화는 생성되지 않습니다.")
+
+        if st.button("동화 만들기", type="primary", use_container_width=True):
+            st.session_state["story_error"] = None
+            st.session_state["story_result"] = None
+            st.session_state["story_prompt"] = None
+            st.session_state["story_image"] = None
+            st.session_state["story_image_error"] = None
+            st.session_state["story_image_style"] = None
+            st.session_state["story_export_path"] = None
+            st.session_state["is_generating"] = True
+            st.rerun()
+            st.stop()
 
     if st.session_state.get("story_error"):
         st.error(f"생성 실패: {st.session_state['story_error']}")
 
-    story_data = st.session_state.get("story_result")
     if story_data:
         st.subheader(story_data["title"])
+        topic_display = topic_val if topic_val else "(빈칸)"
+        st.caption(
+            f"나이대: **{age_val}** · 주제: **{topic_display}** · 이야기 유형: **{selected_type['name']}**"
+        )
         for p in story_data["paragraphs"]:
             st.write(p)
 
@@ -432,6 +462,7 @@ elif current_step == 2:
                 "story_image_error",
                 "story_export_path",
                 "selected_export",
+                "is_generating",
             ]:
                 st.session_state.pop(k, None)
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
@@ -456,6 +487,7 @@ elif current_step == 2:
                 "story_image_error",
                 "story_export_path",
                 "selected_export",
+                "is_generating",
             ]:
                 st.session_state.pop(k, None)
             st.session_state["mode"] = None
