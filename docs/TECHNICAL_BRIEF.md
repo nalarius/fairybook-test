@@ -7,7 +7,7 @@ Fairybook is a four-step Streamlit experience for building Korean children's sto
 - **Step 0 – Mode selection**: Users choose between creating a new story or viewing saved exports. The helper `ensure_state()` seeds every session key once to avoid Streamlit rerun glitches.
 - **Step 1 – Audience & idea**: Form widgets write to transient keys (`age_input`, `topic_input`). Confirmed values are copied to `age` and `topic` only upon form submission.
 - **Step 2 – Story type & title**: Eight random archetypes from `storytype.json` feed the thumbnail picker. Once a type is confirmed, Gemini generates a title using that type's prompt.
-- **Step 3 – Narrative card selection**: Four cards sampled from `story.json` let the user steer the plot. Clicking **이야기 만들기** transitions to the result step while a spinner displays.
+- **Step 3 – Narrative card selection**: Four cards sampled from `story.json` let the user steer the plot. 카드 설명은 밝은 감정선과 서늘한 긴장을 모두 허용하도록 안내하며, 클릭 후 **이야기 만들기**가 로딩 스피너와 함께 결과 단계로 이동한다.
 - **Step 4 – Story results**: Gemini writes the story with the chosen title and card, renders the illustration, and surfaces downloads along with retry/navigation controls.
 - **Step 5 – Saved exports**: If HTML bundles exist in `html_exports/`, users can preview them inside an iframe or download copies. Navigation buttons reset the appropriate state slices without affecting cached assets.
 
@@ -15,7 +15,7 @@ Key helpers such as `go_step()`, `list_html_exports()`, and `_build_story_html_d
 
 ## Story Generation Pipeline
 1. `generate_title_with_gemini()` builds a lightweight prompt from the age band, user topic, and selected story-type prompt to produce a JSON title payload.
-2. After the user chooses a narrative card, `generate_story_with_gemini()` composes a rich prompt that includes the confirmed title, type, and card description.
+2. After the user chooses a narrative card, `generate_story_with_gemini()` composes a rich prompt that includes the confirmed title, type, and card description, while reminding Gemini that 결말과 톤은 밝고 어두운 스펙트럼 어디든 가능하다고 명시한다.
 3. The Gemini text model (`gemini-1.5-flash`) generates a response. `_extract_text_from_response()` tolerates both direct `.text` outputs and `candidates[0].content.parts` lists.
 4. Markdown fences (```json) are stripped before `json.loads()` runs. Missing or malformed data produces a structured error message stored in `st.session_state["story_error"]`.
 5. Successful results expose `title` and `paragraphs` fields back to the Streamlit layer for rendering and downloads.

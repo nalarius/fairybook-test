@@ -14,7 +14,7 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 4. Step 2: Verify eight story-type cards load with the expected thumbnails and that clicking **제목 만들기** produces a title.
 5. Step 3: Ensure four narrative cards appear, switch between them, and trigger **이야기 만들기**.
 6. Step 4: Confirm the loading spinner appears, the story and illustration render, and downloads work.
-7. Generate at least two stories covering different type/card combinations, then download the plain-text export and open it locally.
+7. Generate at least two stories covering 다른 이야기 톤 (예: 하나는 밝고 희망적인 방향, 다른 하나는 서늘하거나 비극적인 방향)으로 각각 다른 type/card 조합을 사용하고, 두 결과를 비교해 톤이 다양하게 반영됐는지 확인한다. 각 결과의 일반 텍스트 내보내기를 다운로드해 정상적으로 열리는지도 점검한다.
 
 ## Illustration Checks
 - Ensure an illustration displays for at least one story (retry if quota or safety blocks trigger).
@@ -28,6 +28,7 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 
 ## Regression Smoke Tests
 - Reload the page or rerun Streamlit to confirm cached data persists and the UI rehydrates correctly.
+- 검증 과정에서 생성한 여러 이야기의 분위기가 재실행 후에도 다양하게 유지되는지 살펴본다.
 - Disconnect the network temporarily; expect clear error messages when Gemini calls fail.
 - Validate that deleting or corrupting `illust_styles.json` produces the warning banner instead of crashing.
 

@@ -6,7 +6,7 @@
             "id":10001,
             "name":"동물",
             "eng_name":"animal",
-            "prompt":"동물 캐릭터가 등장하는 전통적인 동화",
+            "prompt":"동물 캐릭터가 등장하는 전통적인 동화로, 숲속의 유쾌한 일상과 먹이 사슬의 긴장감이 번갈아 흐르는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of anthropomorphic animal characters, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_animal.png"
         },
@@ -14,7 +14,7 @@
             "id":10002,
             "name":"변신",
             "eng_name":"metamorphosis",
-            "prompt":"평범했던 주인공이 화려하게 변신하는 과정을 보여주는 동화",
+            "prompt":"평범했던 주인공이 화려하게 변신하며 새로운 가능성과 뜻밖의 위험을 동시에 맞이하는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of a caterpillar, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_metamorphosis.png"
         },
@@ -22,7 +22,7 @@
             "id":10003,            
             "name":"상상",
             "eng_name":"imagination",
-            "prompt":"상상 속 모험을 그린 이야기로, 상상력과 독립성을 장려하는 동화",
+            "prompt":"상상 속 모험이 현실과 겹쳐지며 환희와 기묘한 떨림을 오가는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of a canoe drifting down the flowing river, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_imagination.png"
         },           
@@ -30,7 +30,7 @@
             "id":10004,            
             "name":"모험",
             "eng_name":"adventure",
-            "prompt":"주인공과 친구들의 모험을 담고 있는, 우정과 사랑에 대한 따뜻한 이야기",
+            "prompt":"주인공과 친구들이 우정과 사랑을 지키기 위해 웃음과 배신의 순간을 번갈아 겪는 모험 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of friends running together, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_adventure.png"
         },            
@@ -38,7 +38,7 @@
             "id":10005,            
             "name":"환상",
             "eng_name":"fantasy",
-            "prompt":"주인공이 이상한 나라로 떨어져 서로 다른 많은 캐릭터들을 만나는 모험을 하는 이야기로, 환상과 논리에 대한 동화",
+            "prompt":"주인공이 이상한 나라로 떨어져 낯선 존재들과 거래하고 시험을 치르며 경이와 불안을 함께 맛보는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of alice in the wonderland, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_fantasy.png"
         },           
@@ -46,7 +46,7 @@
             "id":10006,            
             "name":"용기",
             "eng_name":"courage",
-            "prompt":"주인공이 이상한 나라로 떨어져 모험을 하는 이야기로, 용기와 희생에 대한 동화",
+            "prompt":"주인공이 낯선 세계의 위협 앞에서 용기를 끌어올리고, 때로는 희생을 감수하며 동료를 지키는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of sacrifice of aslan the lion, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_courage.png"
         },           
@@ -54,7 +54,7 @@
             "id":10007,            
             "name":"죽음",
             "eng_name":"death",
-            "prompt":"주인공과 친구의 우정을 그린 이야기로, 생명과 죽음, 그리고 변화에 대한 동화",
+            "prompt":"주인공과 친구의 우정이 생명과 죽음의 경계에서 흔들리며, 상실과 위로를 함께 배워가는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of the Grim Reaper harvesting soul, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_death.png"
         },           
@@ -62,7 +62,7 @@
             "id":10008,            
             "name":"손님",
             "eng_name":"guest",
-            "prompt":"누군가가 주인공의 집을 방문해 벌어지는 흥미진진한 모험을 다루는, 읽기의 즐거움과 상상력을 장려하는 동화",
+            "prompt":"낯선 손님이 찾아와 일상이 뒤흔들리고 숨겨둔 비밀과 새로운 즐거움이 동시에 드러나는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of stray cat entering the house, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_guest.png"
         },           
@@ -70,7 +70,7 @@
             "id":10009,            
             "name":"새로움",
             "eng_name":"novelty",
-            "prompt":"주인공이 새로운 음식을 시도하는 것을 거부하지만 결국 그것을 좋아하게 되는 이야기로, 새로운 것을 시도해보는 것의 중요성을 강조하는 동화",
+            "prompt":"새로운 음식을 망설이던 주인공이 낯선 향과 짜릿한 도전을 통해 새로운 미각과 두근거림을 발견하는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of novelty food, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_novelty.png"
         },           
@@ -78,7 +78,7 @@
             "id":10010,            
             "name":"위험",
             "eng_name":"peril",
-            "prompt":"주인공이 숲에서 여러 캐릭터를 만나서 험난한 모험을 하는 이야기로, 빠르게 생각하고 대처하는 것의 중요성을 강조하는 동화",
+            "prompt":"주인공이 숲에서 이상한 캐릭터들과 조우하며 아슬아슬한 선택과 예상치 못한 협력을 반복하는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of frightened, about to fall, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_peril.png"
         },           
@@ -86,7 +86,7 @@
             "id":10011,            
             "name":"밤",
             "eng_name":"night",
-            "prompt":"잠자기 전에 달이 뜬 밤하늘을 바라보며 인사하는 이야기로, 잠들기 전의 저녁 시간의 평온함과 안정감을 다루는 동화",
+            "prompt":"잠자기 전 달빛 아래서 나누는 인사가 어느 날 신비로운 징조와 포근한 위로로 얽히는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of moonlit night sky, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800 ",
             "illust":"story_type_night.png"
         },           
@@ -94,7 +94,7 @@
             "id":10012,            
             "name":"나무",
             "eng_name":"tree",
-            "prompt":"나무와 주인공 사이의 오랜 우정을 기른, 사랑과 희생, 이해에 대한 깊은 교훈을 주는 동화",
+            "prompt":"나무와 주인공 사이의 오랜 우정이 변해가며 헌신과 집착 사이에서 마음을 고르는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of tree of life, warm, friendship, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_tree.png"
         },           
@@ -102,7 +102,7 @@
             "id":10013,            
             "name":"호기심",
             "eng_name":"curiosity",
-            "prompt":"호기심 많은 주인공의 모험을 다루는 이야기로, 세상에 대한 호기심과 학습을 장려하는 동화",
+            "prompt":"호기심 많은 주인공이 금지된 공간을 탐험하며 놀라운 발견과 위험한 경고를 함께 마주하는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of rotund mass of curious eyes, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, tryphobia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_curiosity.png"
         },           
@@ -110,7 +110,7 @@
             "id":10014,            
             "name":"인형",
             "eng_name":"doll",
-            "prompt":"상점에서 산 인형에 대한 이야기로, 사랑과 우정에 대한 동화",
+            "prompt":"상점에서 사 온 인형이 밤마다 다른 얼굴을 드러내며 기묘한 친구가 되는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of blythe doll, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_doll.png"
         },            
@@ -118,7 +118,7 @@
             "id":10015,            
             "name":"학교",
             "eng_name":"school",
-            "prompt":"도시의 학교에서 생활하는 주인공의 이야기로, 용기와 결단력을 강조하는 동화",
+            "prompt":"도시의 학교에서 벌어지는 기묘한 사건 속에서 주인공이 두려움과 연대를 모두 배우는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of classroom, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_school.png"
         },            
@@ -126,7 +126,7 @@
             "id":10016,            
             "name":"가족",
             "eng_name":"family",
-            "prompt":"주인공과 부모가 서로 얼마나 사랑하는지를 논의하는 이야기로, 부모와 자녀 사이의 사랑에 대한 동화",
+            "prompt":"주인공과 부모가 서로의 비밀을 마주하며 사랑과 두려움이 교차하는 가족 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of a family of foxes gathered around a breakfast table, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_family.png"
         },           
@@ -134,7 +134,7 @@
             "id":10017,            
             "name":"화해",
             "eng_name":"reconciliation",
-            "prompt":"용기있는 주인공의 이야기로, 용기와 사랑, 용서에 대한 동화",
+            "prompt":"용기 있는 주인공이 화해를 이루기 위해 배신과 상실을 견디면서도 다시 웃음을 찾는 방법을 배우는 이야기",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of friendly handshake, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_reconciliation.png"
         },            
@@ -142,7 +142,7 @@
             "id":10018,            
             "name":"다름",
             "eng_name":"diversity",
-            "prompt":"주인공이 새 가족과 함께 살게 되는 이야기로, 자신의 정체성을 찾고, 차이를 존중하는 것의 중요성을 강조하는 동화",
+            "prompt":"새 가족과 함께 살게 된 주인공이 낯선 규칙과 숨겨진 과거를 파헤치며 정체성을 지키고 새로운 연대를 찾는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of diverse family, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph --ar 3:4 --c 90 --s 800",
             "illust":"story_type_diversity.png"           
         },
@@ -150,7 +150,7 @@
             "id":10019,            
             "name":"여행",
             "eng_name":"journey",
-            "prompt":"주인공의 여행을 그린 이야기로, 우정과 사랑, 그리고 성인들의 세상에 대한 깊은 통찰을 제공하는 동화",
+            "prompt":"주인공의 여행이 경이와 위협이 교차하는 길로 흐르며, 낯선 땅에서 신뢰와 생존을 동시에 시험하는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of yellow brick road leading to rainbow, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_journey.png"
         },   
@@ -158,7 +158,7 @@
             "id":10020,            
             "name":"친구",
             "eng_name":"friend",
-            "prompt":"주인공과 그의 친구들의 이야기로, 나눔과 친구 사이의 공감에 대한 동화",
+            "prompt":"주인공과 친구들이 서로의 빛과 그림자를 공유하며 끈끈한 연대를 확인하는 동화",
             "illust_prompt":"extremely loveable adorable charming whimsical flamboyant mischievous beautiful psychedelic image of friends running together, by Tim Burton and Beksinski, stained glass, Klimt, Junji Ito, stylized, pattern, vibrant, vivid Photograph, zootopia --ar 3:4 --c 90 --s 800",
             "illust":"story_type_friend.png"
         }   
