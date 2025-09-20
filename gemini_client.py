@@ -2,6 +2,8 @@
 # ── 0) 로그 억제: gRPC/absl 메시지를 조용히 ──────────────────────────
 import base64
 import os
+import random
+from pathlib import Path
 os.environ["GRPC_VERBOSITY"] = "ERROR"
 os.environ["GRPC_TRACE"] = ""
 
@@ -30,8 +32,41 @@ _MODEL = "gemini-1.5-flash"  # 속도/비용 유리(샘플용)
 _IMAGE_MODEL_ENV = (os.getenv("GEMINI_IMAGE_MODEL") or "").strip()
 _IMAGE_MODEL = _IMAGE_MODEL_ENV or "imagen-3.0-generate-001"  # 기본 이미지 모델
 _IMAGE_MODEL_FALLBACKS = ("imagen-3.0", "imagen-3.0-light")  # SDK 가이드 기준 예비 후보
+_STYLE_JSON_PATH = Path("illust_styles.json")
 
-def _build_prompt(age: str, topic: str | None, story_type_name: str) -> str:
+_ILLUST_STYLES_CACHE: list[dict] | None = None
+
+
+def _load_illust_styles() -> list[dict]:
+    """illust_styles.json에서 사용할 수 있는 스타일 목록을 반환."""
+    global _ILLUST_STYLES_CACHE
+
+    if _ILLUST_STYLES_CACHE is not None:
+        return _ILLUST_STYLES_CACHE
+
+    try:
+        with _STYLE_JSON_PATH.open("r", encoding="utf-8") as fp:
+            payload = json.load(fp)
+    except FileNotFoundError:
+        _ILLUST_STYLES_CACHE = []
+        return _ILLUST_STYLES_CACHE
+    except json.JSONDecodeError:
+        _ILLUST_STYLES_CACHE = []
+        return _ILLUST_STYLES_CACHE
+
+    styles = payload.get("illust_styles") or []
+    cleaned: list[dict] = []
+    for item in styles:
+        name = (item.get("name") or "").strip()
+        style_text = (item.get("style") or "").strip()
+        if not name or not style_text:
+            continue
+        cleaned.append({"name": name, "style": style_text})
+
+    _ILLUST_STYLES_CACHE = cleaned
+    return _ILLUST_STYLES_CACHE
+
+def _build_story_prompt(age: str, topic: str | None, story_type_name: str) -> str:
     """입력(나이대/주제/유형)으로 짧은 동화 JSON을 요구하는 프롬프트 구성."""
     topic_clean = (topic or "").strip()
     return f"""당신은 어린이를 위한 동화 작가입니다.  
@@ -81,6 +116,96 @@ def _build_prompt(age: str, topic: str | None, story_type_name: str) -> str:
 }}
 """
 
+def build_image_prompt(
+    story: dict,
+    *,
+    age: str,
+    topic: str | None,
+    story_type_name: str,
+) -> dict:
+    """이야기와 스타일 정보를 바탕으로 이미지 생성 프롬프트를 구성."""
+    if not API_KEY:
+        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+
+    styles = _load_illust_styles()
+    if not styles:
+        return {"error": "illust_styles.json에서 사용할 수 있는 스타일을 찾지 못했습니다."}
+
+    style_choice = random.choice(styles)
+    style_name = style_choice.get("name", "Unnamed Style")
+    style_text = style_choice.get("style", "")
+    style_fragments = [fragment.strip() for fragment in style_text.split(",") if fragment.strip()]
+    traits_block = "\n".join(f"- {fragment}" for fragment in style_fragments) if style_fragments else "- Warm, friendly picture book aesthetic"
+
+    title = (story.get("title") or "").strip() if isinstance(story, dict) else ""
+    paragraphs_raw = story.get("paragraphs") if isinstance(story, dict) else None
+    paragraphs = [str(p).strip() for p in (paragraphs_raw or []) if str(p).strip()]
+    if not paragraphs:
+        return {"error": "story 본문이 비어 있어 이미지 프롬프트를 만들 수 없습니다."}
+
+    topic_text = (topic or "").strip() or "(빈칸)"
+    summary = " ".join(paragraphs)
+    summary = summary[:1500]
+
+    directive = f"""당신은 어린이 그림책 삽화의 아트 디렉터이자 텍스트-투-이미지 프롬프트 엔지니어입니다.  
+주어진 동화 줄거리와 스타일 레퍼런스를 분석하여 **한 장의 삽화**를 묘사하는 영어 프롬프트를 작성하세요.  
+
+[Story]
+- Title: {title or "(무제)"}
+- Age Group: {age}
+- Topic: {topic_text}
+- Story Type: {story_type_name}
+- Summary: {summary}
+
+[Style Reference]
+- Illustrator: {style_name}
+- Descriptor: {style_text}
+- Style Traits:\n{traits_block}
+
+[Requirements]
+- 최종 문장은 순수 영어 프롬프트 한 단락으로 작성합니다 (불릿/설명 금지).
+- "in the style of {style_name}" 구문을 반드시 포함합니다.
+- 위 Style Traits에 나열된 표현들을 그대로 포함하고, 장면 묘사와 자연스럽게 연결하세요.
+- 주요 등장인물과 핵심 사건, 배경, 감정, 조명, 색감을 구체적으로 묘사하세요.
+- 생성될 image 에 글자가 등장하지 않도록 합니다.
+"""
+
+    try:
+        model = genai.GenerativeModel(_MODEL)
+        resp = model.generate_content(directive)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}"}
+
+    prompt_text = ""
+    if hasattr(resp, "text") and resp.text:
+        prompt_text = resp.text
+    else:
+        try:
+            cands = getattr(resp, "candidates", []) or []
+            if cands and hasattr(cands[0], "content") and getattr(cands[0].content, "parts", None):
+                parts = cands[0].content.parts
+                prompt_text = " ".join([getattr(p, "text", "") for p in parts if getattr(p, "text", "")])
+        except Exception:
+            pass
+
+    final_prompt = (prompt_text or "").strip()
+    if not final_prompt:
+        return {"error": "이미지 프롬프트 생성이 실패했습니다."}
+
+    if final_prompt.startswith("```"):
+        cleaned = final_prompt.strip("`")
+        cleaned_lines = [ln for ln in cleaned.splitlines() if not ln.strip().lower().startswith("prompt")]
+        final_prompt = " ".join(line.strip() for line in cleaned_lines if line.strip()).strip()
+
+    final_prompt = " ".join(final_prompt.split())
+
+    return {
+        "prompt": final_prompt,
+        "style_name": style_name,
+        "style_text": style_text,
+    }
+
+
 def generate_story_with_gemini(age: str, topic: str | None, story_type_name: str) -> dict:
     """
     Gemini로 동화를 생성해 {title, paragraphs[]} dict를 반환.
@@ -89,7 +214,7 @@ def generate_story_with_gemini(age: str, topic: str | None, story_type_name: str
     if not API_KEY:
         return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
 
-    prompt = _build_prompt(age, topic, story_type_name)
+    prompt = _build_story_prompt(age, topic, story_type_name)
     try:
         model = genai.GenerativeModel(_MODEL)
         resp = model.generate_content(prompt)

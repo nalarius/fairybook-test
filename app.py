@@ -11,7 +11,7 @@ from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_image_select import image_select
-from gemini_client import generate_story_with_gemini, generate_image_with_gemini
+from gemini_client import generate_story_with_gemini, generate_image_with_gemini, build_image_prompt
 
 st.set_page_config(page_title="한 줄 동화 만들기", page_icon="📖", layout="centered")
 
@@ -77,23 +77,6 @@ def go_step(n: int):
     st.session_state["step"] = n
     if n in (1, 2):
         st.session_state["mode"] = "create"
-
-
-def build_illustration_prompt(story: dict, style: dict, *, age: str, topic: str | None, story_type: str) -> str:
-    """생성된 동화 본문과 스타일 가이드를 이용해 이미지 프롬프트 생성."""
-    paragraphs = story.get("paragraphs", [])
-    summary = " ".join(paragraphs)[:900]
-    topic_text = topic if topic else "자유 주제"
-    return (
-        f"Create a single vivid children's picture book illustration.\n"
-        f"Audience age group: {age}.\n"
-        f"Story type cue: {story_type}.\n"
-        f"Story topic: {topic_text}.\n"
-        f"Follow this art direction: {style.get('style', '').strip()}.\n"
-        f"Key story beats to depict: {summary}.\n"
-        "Frame the main characters with warm lighting and make the scene gentle, hopeful, and safe for young readers."
-    )
-
 
 def list_html_exports() -> list[Path]:
     """저장된 HTML 파일 목록(최신순)을 반환."""
@@ -347,23 +330,25 @@ elif current_step == 2:
             st.session_state["story_error"] = result["error"]
         else:
             st.session_state["story_result"] = result
-            chosen_style = random.choice(illust_styles) if illust_styles else None
-            st.session_state["story_image_style"] = chosen_style
 
-            if not chosen_style:
-                st.session_state["story_image_error"] = "illust_styles.json에서 사용할 스타일을 찾지 못했습니다."
+            prompt_data = build_image_prompt(
+                story=result,
+                age=age_val,
+                topic=topic_val,
+                story_type_name=selected_type["name"],
+            )
+
+            if "error" in prompt_data:
+                st.session_state["story_image_error"] = prompt_data["error"]
             else:
-                prompt = build_illustration_prompt(
-                    story=result,
-                    style=chosen_style,
-                    age=age_val,
-                    topic=topic_val,
-                    story_type=selected_type["name"],
-                )
-                st.session_state["story_prompt"] = prompt
+                st.session_state["story_prompt"] = prompt_data["prompt"]
+                st.session_state["story_image_style"] = {
+                    "name": prompt_data.get("style_name"),
+                    "style": prompt_data.get("style_text"),
+                }
 
                 with st.spinner("Gemini로 삽화 생성 중..."):
-                    image_response = generate_image_with_gemini(prompt)
+                    image_response = generate_image_with_gemini(prompt_data["prompt"])
 
                 if "error" in image_response:
                     st.session_state["story_image_error"] = image_response["error"]
