@@ -255,9 +255,11 @@ elif current_step == 1:
             index=0 if st.session_state["age_input"] == "6-8" else 1,
             key="age_input",  # 위젯은 age_input에만 바인딩
         )
-        st.text_input(
-            "한 줄 주제(없으면 빈칸 OK)",
-            placeholder="예) 잃어버린 모자를 찾기",
+        st.caption("이야기의 주제, 진행 방향, 주요 인물 등을 자유롭게 입력해주세요.")
+        st.text_area(
+            "이야기 아이디어",
+            placeholder="예) 잃어버린 모자를 찾는 모험에서 동물 친구들이 함께 돕는 이야기",
+            height=96,
             key="topic_input",  # 위젯은 topic_input에만 바인딩
         )
         c1, c2 = st.columns(2)
@@ -456,8 +458,8 @@ elif current_step == 2:
                 "selected_export",
             ]:
                 st.session_state.pop(k, None)
-            st.session_state["mode"] = "create"
-            st.session_state["step"] = 1
+            st.session_state["mode"] = None
+            st.session_state["step"] = 0
             st.rerun()
 
 elif current_step == 3:
