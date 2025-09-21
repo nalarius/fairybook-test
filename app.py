@@ -1124,6 +1124,8 @@ elif current_step == 5 and mode == "create":
                 story_card_name=card_name,
                 story_card_prompt=card_prompt,
                 previous_sections=previous_sections,
+                synopsis_text=st.session_state.get("synopsis_result"),
+                protagonist_text=st.session_state.get("protagonist_result"),
             )
 
             if "error" in story_result:

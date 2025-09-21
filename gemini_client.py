@@ -166,6 +166,7 @@ def _build_title_prompt(
 입력으로 나이대, 주제, 이야기 유형, 시놉시스, 주인공 정보가 주어집니다.
 이 정보를 활용하여 동화의 분위기와 핵심 갈등을 담은 **인상적인 한국어 제목**을 하나 만들어 주세요.
 
+- **반드시 하나의 최종 제목만 생성해야 합니다.** 두 개 이상의 제목을 이어서 붙이지 마세요.
 - 밝은 모험과 서늘한 긴장이 교차할 수 있음을 반영하고, 따뜻한 장면이나 유머의 여지도 남겨두세요.
 - 결말을 특정 방향으로 단정 짓지 말고, 행복한 끝과 씁쓸한 끝 모두 가능하다는 여운을 살려주세요.
 - 감정을 단조롭게 만들지 말고 장면이 떠오르는 단어로 분위기를 암시하세요.
@@ -247,6 +248,8 @@ def _build_story_prompt(
     story_card_name: str,
     story_card_prompt: str,
     previous_sections: list[dict] | None,
+    synopsis_text: str | None = None,
+    protagonist_text: str | None = None,
 ) -> str:
     topic_clean = (topic or "").strip()
     safe_title = json.dumps(title.strip(), ensure_ascii=False) if title else '"동화"'
@@ -273,10 +276,16 @@ def _build_story_prompt(
         previous_block = "- 아직 작성된 단계가 없습니다."
 
     card_prompt_clean = (story_card_prompt or "").strip() or "(설명 없음)"
+    synopsis_block = (synopsis_text or "").strip() or "(시놉시스 미제공)"
+    protagonist_block = (protagonist_text or "").strip() or "(주인공 미제공)"
 
-    return f"""당신은 어린이를 위한 동화 작가입니다.
+    return f"""당신은 어린이를 위한 연속 동화 작가입니다.
 이 동화는 총 {total_count}단계 구조(발단-전개-위기-절정-결말)로 진행되며, 지금은 {stage_number}단계 "{stage_label}"을 작성합니다.
 앞선 단계들의 분위기와 인과를 이어가면서, 이번 단계만의 극적 역할을 분명히 하세요.
+
+[전체 이야기 설정]
+- 시놉시스: {synopsis_block}
+- 주인공: {protagonist_block}
 
 [이전 단계 요약]
 {previous_block}
@@ -287,7 +296,7 @@ def _build_story_prompt(
 
 [작성 지침]
 - {stage_focus}
-- 이전 단계와 자연스럽게 이어지도록 사건과 감정의 흐름을 조율하세요.
+- **주인공 설정과 시놉시스를 충실히 반영하여** 이전 단계와 자연스럽게 이어지도록 사건과 감정의 흐름을 조율하세요.
 - 감정과 상황은 인물의 행동, 대사, 표정, 호흡, 몸짓, 주변 환경 묘사로 보여 주고, 단정적인 설명은 줄이세요. 필요하면 내적 독백과 미세한 감각 변화를 통해 심리를 드러내세요.
 - 밝은 순간과 서늘한 긴장감이 공존하도록 하고, 모험 속 위기와 숨 돌릴 유머나 따뜻함을 함께 담으세요.
 - 반전이나 정체성 전환은 한국어식 표현이나 대사로 드러내고, 영어식 문장 구조를 사용하지 마세요.
@@ -599,6 +608,7 @@ def build_character_image_prompt(
         stage_name="캐릭터 설정화",
         style_override=style_override,
         is_character_sheet=True,
+        protagonist_text=protagonist_text,
     )
 
 
@@ -614,6 +624,8 @@ def generate_story_with_gemini(
     story_card_name: str,
     story_card_prompt: str,
     previous_sections: list[dict] | None = None,
+    synopsis_text: str | None = None,
+    protagonist_text: str | None = None,
 ) -> dict:
     """
     Gemini로 단계별 동화를 생성해 {title, paragraphs[]} dict를 반환.
@@ -633,6 +645,8 @@ def generate_story_with_gemini(
         story_card_name=story_card_name,
         story_card_prompt=story_card_prompt,
         previous_sections=previous_sections,
+        synopsis_text=synopsis_text,
+        protagonist_text=protagonist_text,
     )
     last_error: dict | None = None
 
