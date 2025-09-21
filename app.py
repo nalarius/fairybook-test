@@ -244,7 +244,7 @@ def _build_story_html_document(
     cover_section = ""
     if cover and cover.get("image_data_uri"):
         cover_section = (
-            "    <section class=\"cover\">\n"
+            "    <section class=\"cover stage\">\n"
             "        <figure>\n"
             f"            <img src=\"{cover.get('image_data_uri')}\" alt=\"{escaped_title} 표지\" />\n"
             "        </figure>\n"
