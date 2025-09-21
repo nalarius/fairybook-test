@@ -80,7 +80,7 @@ story_cards = load_story_cards()
 # 세션 상태: '없을 때만' 기본값. 절대 무조건 대입하지 않음.
 # ─────────────────────────────────────────────────────────────────────
 def ensure_state():
-    st.session_state.setdefault("step", 0)                 # 0: 선택, 1: 입력, 2: 유형/제목, 3: 카드 선택, 4: 결과, 5: 보기
+    st.session_state.setdefault("step", 0)                 # 0: 선택, 1: 입력, 2: 유형/제목, 3: 표지 확인, 4: 카드 선택, 5: 단계 결과, 6: 전체 보기
     st.session_state.setdefault("mode", None)
     st.session_state.setdefault("age", None)               # 확정된 값(제출 후 저장)
     st.session_state.setdefault("topic", None)             # 확정된 값(제출 후 저장)
@@ -122,7 +122,7 @@ ensure_state()
 
 def go_step(n: int):
     st.session_state["step"] = n
-    if n in (1, 2, 3, 4):
+    if n in (1, 2, 3, 4, 5, 6):
         st.session_state["mode"] = "create"
 
 
@@ -385,15 +385,17 @@ if mode == "create" and current_step > 0:
         progress_value = 0.15
     elif current_step == 2:
         progress_value = 0.25
-    elif current_step in (3, 4):
+    elif current_step == 3:
+        progress_value = 0.35
+    elif current_step in (4, 5):
         stage_share = completed_stages / total_phases if total_phases else 0.0
-        progress_value = 0.25 + stage_share * 0.65
-    elif current_step == 5:
+        progress_value = 0.35 + stage_share * 0.6
+    elif current_step == 6:
         if completed_stages >= total_phases:
             progress_value = 1.0
         else:
             stage_share = completed_stages / total_phases if total_phases else 0.0
-            progress_value = 0.25 + stage_share * 0.65
+            progress_value = 0.35 + stage_share * 0.6
     progress_placeholder.progress(min(progress_value, 1.0))
 else:
     progress_placeholder.empty()
@@ -614,22 +616,7 @@ elif current_step == 2:
     if st.session_state.get("story_title_error"):
         st.error(st.session_state["story_title_error"])
     elif title_existing:
-        st.info(f"생성된 제목: **{title_existing}**")
-        cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
-        cover_image = st.session_state.get("cover_image")
-        cover_error = st.session_state.get("cover_image_error")
-        cover_prompt = st.session_state.get("cover_prompt")
-        if cover_image:
-            caption = "표지 일러스트"
-            if cover_style and cover_style.get("name"):
-                caption = f"표지 일러스트 · {cover_style.get('name')} 스타일"
-            st.image(cover_image, caption=caption, use_container_width=True)
-        elif cover_error:
-            st.warning(f"표지 일러스트 생성 실패: {cover_error}")
-
-        if cover_prompt:
-            with st.expander("표지 이미지 프롬프트 보기", expanded=False):
-                st.code(cover_prompt)
+        st.info(f"생성된 제목: **{title_existing}** — 아래 버튼으로 표지를 확인해 보세요.")
 
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     with btn_col1:
@@ -640,20 +627,10 @@ elif current_step == 2:
             st.stop()
     with btn_col2:
         if st.button(
-            "이야기 카드 고르러 가기 →",
+            "표지 확인하기 →",
             use_container_width=True,
             disabled=not st.session_state.get("story_title"),
         ):
-            try:
-                next_stage_idx = next(
-                    idx
-                    for idx, entry in enumerate(st.session_state.get("stages_data") or [])
-                    if not entry
-                )
-            except StopIteration:
-                next_stage_idx = len(STORY_PHASES) - 1
-            st.session_state["current_stage_idx"] = max(0, next_stage_idx)
-            reset_story_session(keep_title=True, keep_cards=False)
             st.session_state["step"] = 3
             st.rerun()
             st.stop()
@@ -685,17 +662,74 @@ elif current_step == 2:
             st.stop()
 
 # ─────────────────────────────────────────────────────────────────────
-# STEP 3 — 이야기 카드 선택
+# STEP 3 — 표지 확인
 # ─────────────────────────────────────────────────────────────────────
 elif current_step == 3:
+    st.subheader("3단계. 완성된 제목과 표지를 확인해보세요")
+
+    title_val = st.session_state.get("story_title")
+    if not title_val:
+        st.warning("제목을 먼저 생성해야 합니다.")
+        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+            go_step(2)
+            st.rerun()
+            st.stop()
+        st.stop()
+
+    cover_image = st.session_state.get("cover_image")
+    cover_error = st.session_state.get("cover_image_error")
+    cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
+
+    st.markdown(f"### {title_val}")
+    if cover_image:
+        caption = "표지 일러스트"
+        if cover_style and cover_style.get("name"):
+            caption = f"표지 일러스트 · {cover_style.get('name')} 스타일"
+        st.image(cover_image, caption=caption, use_container_width=True)
+    elif cover_error:
+        st.warning(f"표지 일러스트 생성 실패: {cover_error}")
+    else:
+        st.info("표지 일러스트가 아직 준비되지 않았어요. 제목을 다시 생성해 보세요.")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("← 이야기 유형 다시 고르기", use_container_width=True):
+            reset_story_session(keep_title=True, keep_cards=False)
+            go_step(2)
+            st.rerun()
+            st.stop()
+    with c2:
+        if st.button("제목 새로 만들기", use_container_width=True):
+            reset_story_session(keep_title=False, keep_cards=False)
+            clear_stages_from(0)
+            reset_cover_art()
+            st.session_state["current_stage_idx"] = 0
+            st.session_state["is_generating_title"] = True
+            go_step(2)
+            st.rerun()
+            st.stop()
+    with c3:
+        continue_disabled = not cover_image and not title_val
+        if st.button("계속해서 이야기 만들기 →", type="primary", use_container_width=True, disabled=continue_disabled):
+            clear_stages_from(0)
+            st.session_state["current_stage_idx"] = 0
+            reset_story_session(keep_title=True, keep_cards=False)
+            st.session_state["step"] = 4
+            st.rerun()
+            st.stop()
+
+# ─────────────────────────────────────────────────────────────────────
+# STEP 4 — 이야기 카드 선택
+# ─────────────────────────────────────────────────────────────────────
+elif current_step == 4:
     stage_idx = st.session_state.get("current_stage_idx", 0)
     if stage_idx >= len(STORY_PHASES):
-        st.session_state["step"] = 5
+        st.session_state["step"] = 6
         st.rerun()
         st.stop()
 
     stage_name = STORY_PHASES[stage_idx]
-    st.subheader(f"3단계. {stage_idx + 1}단계 {stage_name}에 어울리는 이야기 카드를 골라보세요")
+    st.subheader(f"4단계. {stage_idx + 1}단계 {stage_name}에 어울리는 이야기 카드를 골라보세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -805,7 +839,7 @@ elif current_step == 3:
         reset_story_session(keep_title=True, keep_cards=True)
         st.session_state["story_prompt"] = None
         st.session_state["is_generating_story"] = True
-        st.session_state["step"] = 4
+        st.session_state["step"] = 5
         st.rerun()
         st.stop()
 
@@ -830,12 +864,12 @@ elif current_step == 3:
             st.stop()
 
 # ─────────────────────────────────────────────────────────────────────
-# STEP 4 — 생성 중 상태 & 결과 보기
+# STEP 5 — 생성 중 상태 & 결과 보기
 # ─────────────────────────────────────────────────────────────────────
-elif current_step == 4:
+elif current_step == 5:
     stage_idx = st.session_state.get("current_stage_idx", 0)
     if stage_idx >= len(STORY_PHASES):
-        st.session_state["step"] = 5
+        st.session_state["step"] = 6
         st.rerun()
         st.stop()
 
@@ -855,7 +889,7 @@ elif current_step == 4:
     if not cards:
         st.warning("이야기 카드를 다시 선택해주세요.")
         if st.button("이야기 카드 화면으로", use_container_width=True):
-            go_step(3)
+            go_step(4)
             st.rerun()
             st.stop()
         st.stop()
@@ -1018,18 +1052,10 @@ elif current_step == 4:
     if not story_data and not story_error:
         st.info("이야기 카드를 선택한 뒤 ‘이 단계 이야기 만들기’ 버튼을 눌러주세요.")
         if st.button("이야기 카드 화면으로", use_container_width=True):
-            go_step(3)
+            go_step(4)
             st.rerun()
             st.stop()
         st.stop()
-
-    meta_caption = (
-        f"나이대: **{age_val}** · 주제: **{topic_display}** · 이야기 유형: **{selected_type.get('name', '이야기 유형')}**"
-    )
-    st.caption(meta_caption)
-    st.caption(f"현재 단계: **{stage_name}** · 선택한 이야기 카드: **{card_name}**")
-    if card_prompt:
-        st.caption(card_prompt)
 
     if story_error:
         st.error(f"이야기 생성 실패: {story_error}")
@@ -1044,7 +1070,7 @@ elif current_step == 4:
             if st.button("카드 다시 고르기", use_container_width=True):
                 clear_stages_from(stage_idx)
                 reset_story_session(keep_title=True, keep_cards=False)
-                go_step(3)
+                go_step(4)
                 st.rerun()
                 st.stop()
         with reset_col:
@@ -1073,31 +1099,20 @@ elif current_step == 4:
         use_container_width=True,
     )
 
-    style_info = stage_entry.get("image_style") if stage_entry else st.session_state.get("story_image_style")
-    if not style_info:
-        style_info = st.session_state.get("story_style_choice")
     image_bytes = stage_entry.get("image_bytes") if stage_entry else st.session_state.get("story_image")
     image_error = stage_entry.get("image_error") if stage_entry else st.session_state.get("story_image_error")
-
-    if style_info:
-        st.caption(f"삽화 스타일: {style_info.get('name', '알 수 없음')}")
 
     if image_bytes:
         st.image(image_bytes, caption="AI 생성 삽화", use_container_width=True)
     elif image_error:
         st.warning(f"삽화 생성 실패: {image_error}")
 
-    prompt_text = stage_entry.get("image_prompt") if stage_entry else st.session_state.get("story_prompt")
-    if prompt_text:
-        with st.expander("이 단계 이미지 프롬프트 보기", expanded=False):
-            st.code(prompt_text)
-
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
         if st.button("← 이 단계 카드 다시 고르기", use_container_width=True):
             clear_stages_from(stage_idx)
             reset_story_session(keep_title=True, keep_cards=False)
-            go_step(3)
+            go_step(4)
             st.rerun()
             st.stop()
     with nav_col2:
@@ -1110,7 +1125,7 @@ elif current_step == 4:
             ):
                 st.session_state["current_stage_idx"] = stage_idx + 1
                 reset_story_session(keep_title=True, keep_cards=False)
-                go_step(3)
+                go_step(4)
                 st.rerun()
                 st.stop()
         else:
@@ -1119,7 +1134,7 @@ elif current_step == 4:
                 use_container_width=True,
                 disabled=not stage_completed,
             ):
-                st.session_state["step"] = 5
+                st.session_state["step"] = 6
                 reset_story_session(keep_title=True, keep_cards=False)
                 st.rerun()
                 st.stop()
@@ -1131,12 +1146,12 @@ elif current_step == 4:
 
     if stage_entry and stage_idx < len(STORY_PHASES) - 1:
         if st.button("지금까지 이야기 모아보기", use_container_width=True):
-            st.session_state["step"] = 5
+            st.session_state["step"] = 6
             st.rerun()
             st.stop()
 
-elif current_step == 5 and mode == "create":
-    st.subheader("5단계. 전체 이야기를 모아봤어요")
+elif current_step == 6 and mode == "create":
+    st.subheader("6단계. 전체 이야기를 모아봤어요")
 
     title_val = (st.session_state.get("story_title") or "동화").strip()
     age_val = st.session_state.get("age") or "6-8"
@@ -1163,7 +1178,7 @@ elif current_step == 5 and mode == "create":
         if st.button("남은 단계 이어가기 →", use_container_width=True):
             st.session_state["current_stage_idx"] = next_stage_idx
             reset_story_session(keep_title=True, keep_cards=False)
-            st.session_state["step"] = 3
+            st.session_state["step"] = 4
             st.rerun()
         st.stop()
 
