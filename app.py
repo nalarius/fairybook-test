@@ -774,11 +774,6 @@ elif current_step == 3:
     st.caption(
         f"나이대: **{age_val}** · 주제: **{topic_display}** · 이야기 유형: **{selected_type.get('name', '이야기 유형')}**"
     )
-    cover_image = st.session_state.get("cover_image")
-    if cover_image:
-        st.image(cover_image, caption="표지 일러스트", use_container_width=True)
-    elif st.session_state.get("cover_image_error"):
-        st.caption("표지 일러스트를 준비하지 못했어요.")
     st.caption("카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요. 단계별로 생성된 내용은 자동으로 이어집니다.")
 
     card_images = [os.path.join(ILLUST_DIR, card.get("illust", "")) for card in cards]
@@ -1032,12 +1027,6 @@ elif current_step == 4:
         f"나이대: **{age_val}** · 주제: **{topic_display}** · 이야기 유형: **{selected_type.get('name', '이야기 유형')}**"
     )
     st.caption(meta_caption)
-    if stage_idx == 0:
-        cover_image = st.session_state.get("cover_image")
-        if cover_image:
-            st.image(cover_image, caption="표지 일러스트", use_container_width=True)
-        elif st.session_state.get("cover_image_error"):
-            st.caption("표지 일러스트를 준비하지 못했어요.")
     st.caption(f"현재 단계: **{stage_name}** · 선택한 이야기 카드: **{card_name}**")
     if card_prompt:
         st.caption(card_prompt)
