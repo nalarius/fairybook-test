@@ -16,7 +16,10 @@ from gemini_client import (
     generate_story_with_gemini,
     generate_image_with_gemini,
     build_image_prompt,
+    build_character_image_prompt,
     generate_title_with_gemini,
+    generate_synopsis_with_gemini,
+    generate_protagonist_with_gemini,
 )
 
 st.set_page_config(page_title="한 줄 동화 만들기", page_icon="📖", layout="centered")
@@ -119,6 +122,19 @@ def ensure_state():
     st.session_state.setdefault("story_image_mime", "image/png")
     st.session_state.setdefault("story_image_style", None)
     st.session_state.setdefault("story_image_error", None)
+    st.session_state.setdefault("synopsis_result", None)
+    st.session_state.setdefault("synopsis_hooks", None)
+    st.session_state.setdefault("synopsis_error", None)
+    st.session_state.setdefault("is_generating_synopsis", False)
+    st.session_state.setdefault("protagonist_result", None)
+    st.session_state.setdefault("protagonist_error", None)
+    st.session_state.setdefault("is_generating_protagonist", False)
+    st.session_state.setdefault("character_prompt", None)
+    st.session_state.setdefault("character_image", None)
+    st.session_state.setdefault("character_image_mime", "image/png")
+    st.session_state.setdefault("character_image_error", None)
+    st.session_state.setdefault("is_generating_character_image", False)
+    st.session_state.setdefault("selected_style_id", None)
     st.session_state.setdefault("story_title", None)
     st.session_state.setdefault("story_title_error", None)
     st.session_state.setdefault("story_cards_rand4", None)
@@ -135,6 +151,7 @@ def ensure_state():
     st.session_state.setdefault("cover_image_style", None)
     st.session_state.setdefault("cover_image_error", None)
     st.session_state.setdefault("cover_prompt", None)
+    st.session_state.setdefault("is_generating_all", False) # 통합 생성 플래그
 
 ensure_state()
 
@@ -144,7 +161,15 @@ def go_step(n: int):
         st.session_state["mode"] = "create"
 
 
-def reset_story_session(*, keep_title: bool = False, keep_cards: bool = False):
+def reset_story_session(
+    *,
+    keep_title: bool = False,
+    keep_cards: bool = False,
+    keep_synopsis: bool = False,
+    keep_protagonist: bool = False,
+    keep_character: bool = False,
+    keep_style: bool = False,
+):
     defaults = {
         "story_error": None,
         "story_result": None,
@@ -159,7 +184,35 @@ def reset_story_session(*, keep_title: bool = False, keep_cards: bool = False):
         "is_generating_story": False,
         "is_generating_title": False,
         "story_card_choice": None,
+        "synopsis_result": None,
+        "synopsis_hooks": None,
+        "synopsis_error": None,
+        "is_generating_synopsis": False,
+        "protagonist_result": None,
+        "protagonist_error": None,
+        "is_generating_protagonist": False,
+        "character_prompt": None,
+        "character_image": None,
+        "character_image_mime": "image/png",
+        "character_image_error": None,
+        "is_generating_character_image": False,
+        "selected_style_id": None,
+        "story_style_choice": None,
+        "cover_image_style": None,
     }
+
+    if keep_synopsis:
+        for key in ("synopsis_result", "synopsis_hooks", "synopsis_error"):
+            defaults.pop(key, None)
+    if keep_protagonist:
+        for key in ("protagonist_result", "protagonist_error"):
+            defaults.pop(key, None)
+    if keep_character:
+        for key in ("character_prompt", "character_image", "character_image_mime", "character_image_error"):
+            defaults.pop(key, None)
+    if keep_style:
+        for key in ("selected_style_id", "story_style_choice", "cover_image_style"):
+            defaults.pop(key, None)
 
     for key, value in defaults.items():
         st.session_state[key] = value
@@ -170,8 +223,6 @@ def reset_story_session(*, keep_title: bool = False, keep_cards: bool = False):
     if not keep_cards:
         st.session_state["story_cards_rand4"] = None
         st.session_state["selected_story_card_idx"] = 0
-
-
 def reset_all_state():
     keys = [
         "age",
@@ -198,6 +249,7 @@ def reset_all_state():
         "selected_export",
         "is_generating_title",
         "is_generating_story",
+        "is_generating_all",
         "stages_data",
         "story_style_choice",
         "cover_image",
@@ -205,6 +257,19 @@ def reset_all_state():
         "cover_image_style",
         "cover_image_error",
         "cover_prompt",
+        "synopsis_result",
+        "synopsis_hooks",
+        "synopsis_error",
+        "is_generating_synopsis",
+        "protagonist_result",
+        "protagonist_error",
+        "is_generating_protagonist",
+        "character_prompt",
+        "character_image",
+        "character_image_mime",
+        "character_image_error",
+        "is_generating_character_image",
+        "selected_style_id",
     ]
 
     for key in keys:
@@ -224,13 +289,63 @@ def clear_stages_from(index: int):
     st.session_state["stages_data"] = stages
 
 
-def reset_cover_art():
+def reset_character_art():
+    st.session_state["character_prompt"] = None
+    st.session_state["character_image"] = None
+    st.session_state["character_image_mime"] = "image/png"
+    st.session_state["character_image_error"] = None
+    st.session_state["is_generating_character_image"] = False
+
+
+
+def reset_title_and_cover(*, keep_style: bool = False, keep_title: bool = False):
+    if not keep_title:
+        st.session_state["story_title"] = None
+        st.session_state["story_title_error"] = None
+    st.session_state["is_generating_title"] = False
     st.session_state["cover_image"] = None
     st.session_state["cover_image_mime"] = "image/png"
-    st.session_state["cover_image_style"] = None
+    if not keep_style:
+        st.session_state["cover_image_style"] = None
+        st.session_state["story_style_choice"] = None
+        st.session_state["selected_style_id"] = None
     st.session_state["cover_image_error"] = None
     st.session_state["cover_prompt"] = None
-    st.session_state["story_style_choice"] = None
+
+
+
+def reset_protagonist_state(*, keep_style: bool = True):
+    st.session_state["protagonist_result"] = None
+    st.session_state["protagonist_error"] = None
+    st.session_state["is_generating_protagonist"] = False
+    reset_character_art()
+    reset_title_and_cover(keep_style=keep_style)
+
+
+
+def reset_cover_art(*, keep_style: bool = False):
+    reset_title_and_cover(keep_style=keep_style)
+
+
+def format_item_list(values, limit: int | None = 3) -> list[str]:
+    if values is None:
+        return []
+    if isinstance(values, str):
+        candidates = [values]
+    elif isinstance(values, (tuple, set)):
+        candidates = list(values)
+    elif isinstance(values, list):
+        candidates = values
+    else:
+        candidates = [values]
+    cleaned: list[str] = []
+    for item in candidates:
+        text_item = str(item).strip()
+        if text_item:
+            cleaned.append(text_item)
+    if limit is not None:
+        return cleaned[:limit]
+    return cleaned
 
 
 def list_html_exports() -> list[Path]:
@@ -492,11 +607,8 @@ elif current_step == 1:
         st.session_state["topic"] = (st.session_state["topic_input"] or "").strip()
         st.session_state["step"] = 2
 
-# ─────────────────────────────────────────────────────────────────────
-# STEP 2 — 이야기 유형 선택 & 제목 생성
-# ─────────────────────────────────────────────────────────────────────
 elif current_step == 2:
-    st.subheader("2단계. 이야기 유형을 고르고 제목을 만들어보세요")
+    st.subheader("2단계. 제목을 만들어보세요.")
 
     rand8 = st.session_state["rand8"]
     if not rand8:
@@ -515,101 +627,133 @@ elif current_step == 2:
 
     age_val = st.session_state["age"] if st.session_state["age"] else "6-8"
     topic_val = st.session_state["topic"] if (st.session_state["topic"] is not None) else ""
+    topic_display = topic_val if topic_val else "(빈칸)"
     type_prompt = (selected_type.get("prompt") or "").strip()
+    story_type_name = selected_type.get("name", "이야기 유형")
 
-    if st.session_state.get("is_generating_title"):
-        st.header("제목을 준비하고 있어요 ✨")
-        st.caption("조금만 기다려 주세요. Gemini로 제목을 만들고 있습니다.")
+    if st.session_state.get("is_generating_all"):
+        st.header("동화의 씨앗을 심고 있어요 🌱")
+        st.caption("Gemini와 함께 이야기의 첫 단추를 꿰는 중입니다. 잠시만 기다려주세요.")
+        progress_bar = st.progress(0.0, "시작하는 중...")
 
-        with st.spinner("Gemini로 제목을 만드는 중..."):
-            result = generate_title_with_gemini(
-                age=age_val,
-                topic=topic_val or None,
-                story_type_name=selected_type.get("name", "이야기 유형"),
-                story_type_prompt=type_prompt,
-            )
+        def show_error_and_stop(message: str):
+            st.error(message)
+            st.session_state["is_generating_all"] = False
+            if st.button("다시 시도하기", use_container_width=True):
+                reset_story_session()
+                st.rerun()
+            st.stop()
 
-            if "error" in result:
-                st.session_state["story_title_error"] = result["error"]
+        # 1. 시놉시스 생성
+        progress_bar.progress(0.1, "시놉시스를 만들고 있어요...")
+        synopsis_result = generate_synopsis_with_gemini(
+            age=age_val,
+            topic=topic_val or None,
+            story_type_name=story_type_name,
+            story_type_prompt=type_prompt,
+        )
+        if "error" in synopsis_result:
+            show_error_and_stop(f"시놉시스 생성 실패: {synopsis_result['error']}")
+        synopsis_text = (synopsis_result.get("synopsis") or "").strip()
+        st.session_state["synopsis_result"] = synopsis_text
+
+        # 2. 주인공 설정 생성
+        progress_bar.progress(0.25, "주인공을 상상하고 있어요...")
+        protagonist_result = generate_protagonist_with_gemini(
+            age=age_val,
+            topic=topic_val or None,
+            story_type_name=story_type_name,
+            story_type_prompt=type_prompt,
+            synopsis_text=synopsis_text,
+        )
+        if "error" in protagonist_result:
+            show_error_and_stop(f"주인공 설정 생성 실패: {protagonist_result['error']}")
+        protagonist_text = (protagonist_result.get("description") or "").strip()
+        st.session_state["protagonist_result"] = protagonist_text
+
+        # 3. 삽화 스타일 랜덤 결정
+        progress_bar.progress(0.4, "삽화 스타일을 고르고 있어요...")
+        if not illust_styles:
+            show_error_and_stop("삽화 스타일을 찾을 수 없습니다. illust_styles.json을 확인해주세요.")
+        style_choice = random.choice(illust_styles)
+        st.session_state["story_style_choice"] = style_choice
+        st.session_state["cover_image_style"] = style_choice
+        st.session_state["selected_style_id"] = illust_styles.index(style_choice)
+
+        # 4. 주인공 설정화 생성
+        progress_bar.progress(0.55, "주인공의 모습을 그리고 있어요...")
+        char_prompt_data = build_character_image_prompt(
+            age=age_val,
+            topic=topic_val,
+            story_type_name=story_type_name,
+            synopsis_text=synopsis_text,
+            protagonist_text=protagonist_text,
+            style_override=style_choice,
+        )
+        if "error" in char_prompt_data:
+            st.warning(f"주인공 설정화 프롬프트 생성 실패: {char_prompt_data['error']}")
+        else:
+            st.session_state["character_prompt"] = char_prompt_data.get("prompt")
+            char_image_resp = generate_image_with_gemini(char_prompt_data["prompt"])
+            if "error" in char_image_resp:
+                st.warning(f"주인공 설정화 생성 실패: {char_image_resp['error']}")
+                st.session_state["character_image_error"] = char_image_resp["error"]
             else:
-                title_text = result.get("title", "").strip()
-                reset_story_session(keep_title=False, keep_cards=False)
-                clear_stages_from(0)
-                reset_cover_art()
-                st.session_state["current_stage_idx"] = 0
-                st.session_state["story_title"] = title_text
-                st.session_state["story_title_error"] = None
+                st.session_state["character_image"] = char_image_resp.get("bytes")
+                st.session_state["character_image_mime"] = char_image_resp.get("mime_type", "image/png")
 
-                story_type_name = selected_type.get("name", "이야기 유형")
-                cover_paragraphs: list[str] = []
-                if type_prompt:
-                    cover_paragraphs.append(type_prompt)
-                if topic_val:
-                    cover_paragraphs.append(f"주제 아이디어: {topic_val}")
-                cover_paragraphs.append(
-                    f"{story_type_name} 분위기를 담은 이야기의 표지를 그려 주세요."
-                )
+        # 5. 제목 생성
+        progress_bar.progress(0.7, "멋진 제목을 짓고 있어요...")
+        title_result = generate_title_with_gemini(
+            age=age_val,
+            topic=topic_val or None,
+            story_type_name=story_type_name,
+            story_type_prompt=type_prompt,
+            synopsis=synopsis_text,
+            protagonist=protagonist_text,
+        )
+        if "error" in title_result:
+            show_error_and_stop(f"제목 생성 실패: {title_result['error']}")
+        title_text = title_result.get("title", "").strip()
+        if not title_text:
+            show_error_and_stop("생성된 제목이 비어 있습니다.")
+        st.session_state["story_title"] = title_text
 
-                if illust_styles:
-                    style_choice = random.choice(illust_styles)
-                    style_info = {
-                        "name": style_choice.get("name"),
-                        "style": style_choice.get("style"),
-                    }
-                    st.session_state["story_style_choice"] = style_info
-                    st.session_state["cover_image_style"] = style_info
-                else:
-                    st.session_state["story_style_choice"] = None
-                    st.session_state["cover_image_error"] = "illust_styles.json에서 사용할 수 있는 스타일을 찾지 못했습니다."
+        # 6. 표지 이미지 생성
+        progress_bar.progress(0.85, "표지를 디자인하고 있어요...")
+        cover_story = {"title": title_text, "paragraphs": [synopsis_text, protagonist_text]}
+        cover_prompt_data = build_image_prompt(
+            story=cover_story,
+            age=age_val,
+            topic=topic_val,
+            story_type_name=story_type_name,
+            story_card_name="표지 컨셉",
+            stage_name="표지",
+            style_override=style_choice,
+            use_reference_image=st.session_state.get("character_image") is not None,
+        )
+        if "error" in cover_prompt_data:
+            st.warning(f"표지 프롬프트 생성 실패: {cover_prompt_data['error']}")
+        else:
+            st.session_state["cover_prompt"] = cover_prompt_data.get("prompt")
+            cover_image_resp = generate_image_with_gemini(
+                cover_prompt_data["prompt"],
+                image_input=st.session_state.get("character_image"),
+            )
+            if "error" in cover_image_resp:
+                st.warning(f"표지 이미지 생성 실패: {cover_image_resp['error']}")
+                st.session_state["cover_image_error"] = cover_image_resp["error"]
+            else:
+                st.session_state["cover_image"] = cover_image_resp.get("bytes")
+                st.session_state["cover_image_mime"] = cover_image_resp.get("mime_type", "image/png")
 
-                if cover_paragraphs and st.session_state.get("story_style_choice"):
-                    cover_story = {
-                        "title": title_text,
-                        "paragraphs": cover_paragraphs,
-                    }
-                    prompt_data = build_image_prompt(
-                        story=cover_story,
-                        age=age_val,
-                        topic=topic_val,
-                        story_type_name=story_type_name,
-                        story_card_name="표지 컨셉",
-                        stage_name="표지",
-                        style_override=st.session_state["story_style_choice"],
-                    )
-
-                    if "error" in prompt_data:
-                        st.session_state["cover_image_error"] = prompt_data["error"]
-                        st.session_state["cover_prompt"] = None
-                        st.session_state["cover_image"] = None
-                        st.session_state["cover_image_mime"] = "image/png"
-                    else:
-                        st.session_state["cover_prompt"] = prompt_data.get("prompt")
-                        style_info = {
-                            "name": prompt_data.get("style_name"),
-                            "style": prompt_data.get("style_text"),
-                        }
-                        st.session_state["story_style_choice"] = style_info
-                        st.session_state["cover_image_style"] = style_info
-
-                        image_response = generate_image_with_gemini(prompt_data["prompt"])
-                        if "error" in image_response:
-                            st.session_state["cover_image_error"] = image_response["error"]
-                            st.session_state["cover_image"] = None
-                            st.session_state["cover_image_mime"] = "image/png"
-                        else:
-                            st.session_state["cover_image_error"] = None
-                            st.session_state["cover_image"] = image_response.get("bytes")
-                            st.session_state["cover_image_mime"] = image_response.get("mime_type", "image/png")
-                elif not st.session_state.get("story_style_choice"):
-                    st.session_state["cover_image_error"] = "표지 스타일을 선택하지 못했습니다."
-
-                st.session_state["step"] = 3
-
-        st.session_state["is_generating_title"] = False
+        progress_bar.progress(1.0, "완성! 다음 화면으로 이동합니다.")
+        st.session_state["is_generating_all"] = False
+        go_step(3)
         st.rerun()
         st.stop()
 
-    st.caption("마음에 드는 이야기 유형 카드를 클릭하세요. 선택 후 '제목 만들기' 버튼을 누르면 추천 제목이 생성됩니다.")
+    st.caption("마음에 드는 이야기 유형 카드를 클릭한 뒤, '제목 만들기' 버튼을 눌러주세요.")
     type_images = [os.path.join(ILLUST_DIR, t.get("illust", "")) for t in rand8]
     type_captions = [t.get("name", "이야기 유형") for t in rand8]
 
@@ -621,67 +765,47 @@ elif current_step == 2:
         return_value="index",
         key="rand8_picker",
     )
-    if sel_idx is not None:
+    if sel_idx is not None and sel_idx != selected_idx:
         st.session_state["selected_type_idx"] = sel_idx
-        selected_type = rand8[sel_idx]
-        type_prompt = (selected_type.get("prompt") or "").strip()
+        reset_story_session()
+        st.rerun()
+        st.stop()
 
-    topic_display = topic_val if topic_val else "(빈칸)"
-    st.success(f"선택된 이야기 유형: **{selected_type.get('name', '이야기 유형')}**")
+    st.success(f"선택된 이야기 유형: **{story_type_name}**")
     st.write(f"나이대: **{age_val}**, 주제: **{topic_display}**")
     if type_prompt:
         st.caption(f"유형 설명: {type_prompt}")
 
-    title_existing = st.session_state.get("story_title")
-    if st.session_state.get("story_title_error"):
-        st.error(st.session_state["story_title_error"])
-    elif title_existing:
-        st.info(f"생성된 제목: **{title_existing}** — 아래 버튼으로 표지를 확인해 보세요.")
+    st.markdown("---")
 
-    btn_col1, btn_col2, btn_col3 = st.columns(3)
-    with btn_col1:
-        if st.button("제목 만들기", type="primary", use_container_width=True):
-            st.session_state["story_title_error"] = None
-            st.session_state["is_generating_title"] = True
+    if st.button("✨ 제목 만들기", type="primary", use_container_width=True):
+        reset_story_session()
+        st.session_state["is_generating_all"] = True
+        st.rerun()
+        st.stop()
+
+    st.markdown("---")
+    nav_col1, nav_col2, nav_col3 = st.columns(3)
+    with nav_col1:
+        if st.button("← 나이/주제 다시 선택", use_container_width=True):
+            reset_story_session()
+            go_step(1)
             st.rerun()
             st.stop()
-    with btn_col2:
-        if st.button(
-            "표지 확인하기 →",
-            use_container_width=True,
-            disabled=not st.session_state.get("story_title"),
-        ):
-            st.session_state["step"] = 3
-            st.rerun()
-            st.stop()
-    with btn_col3:
+    with nav_col2:
         if st.button("새로운 8개 뽑기", use_container_width=True):
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types))) if story_types else []
             st.session_state["selected_type_idx"] = 0
             reset_story_session()
-            clear_stages_from(0)
-            reset_cover_art()
-            st.session_state["current_stage_idx"] = 0
             st.rerun()
             st.stop()
-
-    back_col, reset_col = st.columns(2)
-    with back_col:
-        if st.button("← 나이/주제 다시 선택", use_container_width=True):
-            reset_story_session()
-            clear_stages_from(0)
-            reset_cover_art()
-            st.session_state["current_stage_idx"] = 0
-            go_step(1)
-            st.rerun()
-            st.stop()
-    with reset_col:
+    with nav_col3:
         if st.button("모두 초기화", use_container_width=True):
             reset_all_state()
             st.rerun()
             st.stop()
 
-# ─────────────────────────────────────────────────────────────────────
+
 # STEP 3 — 표지 확인
 # ─────────────────────────────────────────────────────────────────────
 elif current_step == 3:
@@ -698,49 +822,75 @@ elif current_step == 3:
 
     cover_image = st.session_state.get("cover_image")
     cover_error = st.session_state.get("cover_image_error")
-    cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
+    cover_style = st.session_state.get("cover_image_style") or st.session_state.get("story_style_choice")
+    synopsis_text = st.session_state.get("synopsis_result")
+    protagonist_text = st.session_state.get("protagonist_result")
+    character_image = st.session_state.get("character_image")
+    character_error = st.session_state.get("character_image_error")
+    style_choice = st.session_state.get("story_style_choice")
 
     st.markdown(f"### {title_val}")
     if cover_image:
         caption = "표지 일러스트"
         if cover_style and cover_style.get("name"):
-            caption = f"표지 일러스트 · {cover_style.get('name')} 스타일"
+            caption += f" · {cover_style.get('name')} 스타일"
         st.image(cover_image, caption=caption, use_container_width=True)
     elif cover_error:
         st.warning(f"표지 일러스트 생성 실패: {cover_error}")
     else:
         st.info("표지 일러스트가 아직 준비되지 않았어요. 제목을 다시 생성해 보세요.")
 
+    st.markdown("---")
+    st.markdown("#### 간단한 시놉시스")
+    if synopsis_text:
+        st.write(synopsis_text)
+    else:
+        st.info("시놉시스가 비어 있습니다. 2단계에서 다시 생성해 주세요.")
+
+    st.markdown("---")
+    st.markdown("#### 주인공 상세 설정")
+    if protagonist_text:
+        st.write(protagonist_text)
+    else:
+        st.info("주인공 설정이 없습니다. 2단계에서 다시 생성해 주세요.")
+
+    st.markdown("---")
+    st.markdown("#### 주인공 설정화")
+    if character_image:
+        caption = "주인공 설정화"
+        active_style = style_choice or cover_style
+        if active_style and active_style.get("name"):
+            caption += f" · {active_style.get('name')} 스타일"
+        st.image(character_image, caption=caption, use_container_width=True)
+    elif character_error:
+        st.warning(f"설정화 생성 실패: {character_error}")
+    else:
+        st.info("설정화가 아직 없습니다. 2단계에서 스타일을 선택하고 생성해 주세요.")
+
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("← 이야기 유형 다시 고르기", use_container_width=True):
-            reset_story_session(keep_title=True, keep_cards=False)
+        if st.button("← 제목/표지 다시 만들기", use_container_width=True):
+            reset_story_session()
             go_step(2)
             st.rerun()
             st.stop()
+
     with c2:
-        if st.button("제목 새로 만들기", use_container_width=True):
-            reset_story_session(keep_title=False, keep_cards=False)
-            clear_stages_from(0)
-            reset_cover_art()
-            st.session_state["current_stage_idx"] = 0
-            st.session_state["is_generating_title"] = True
-            go_step(2)
+        if st.button("모두 초기화", use_container_width=True):
+            reset_all_state()
             st.rerun()
             st.stop()
+
     with c3:
-        continue_disabled = not cover_image and not title_val
+        continue_disabled = not title_val
         if st.button("계속해서 이야기 만들기 →", type="primary", use_container_width=True, disabled=continue_disabled):
             clear_stages_from(0)
             st.session_state["current_stage_idx"] = 0
-            reset_story_session(keep_title=True, keep_cards=False)
+            reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.session_state["step"] = 4
             st.rerun()
             st.stop()
 
-# ─────────────────────────────────────────────────────────────────────
-# STEP 4 — 이야기 카드 선택
-# ─────────────────────────────────────────────────────────────────────
 elif current_step == 4 and mode == "create":
     stage_idx = st.session_state.get("current_stage_idx", 0)
     if stage_idx >= len(STORY_PHASES):
@@ -865,7 +1015,7 @@ elif current_step == 4 and mode == "create":
         st.warning("이미 완성된 단계가 있어 새로 만들면 덮어씁니다.")
 
     if st.button("이 단계 이야기 만들기", type="primary", use_container_width=True):
-        reset_story_session(keep_title=True, keep_cards=True)
+        reset_story_session(keep_title=True, keep_cards=True, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
         st.session_state["story_prompt"] = None
         st.session_state["is_generating_story"] = True
         st.session_state["step"] = 5
@@ -877,13 +1027,13 @@ elif current_step == 4 and mode == "create":
         if st.button("← 제목 다시 만들기", use_container_width=True):
             clear_stages_from(0)
             st.session_state["current_stage_idx"] = 0
-            reset_story_session(keep_title=True, keep_cards=False)
+            reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             go_step(2)
             st.rerun()
             st.stop()
     with nav_col2:
         if st.button("새로운 4개 뽑기", use_container_width=True):
-            reset_story_session(keep_title=True, keep_cards=False)
+            reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.rerun()
             st.stop()
     with nav_col3:
@@ -1098,7 +1248,7 @@ elif current_step == 5 and mode == "create":
         with card_col:
             if st.button("카드 다시 고르기", use_container_width=True):
                 clear_stages_from(stage_idx)
-                reset_story_session(keep_title=True, keep_cards=False)
+                reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
                 go_step(4)
                 st.rerun()
                 st.stop()
@@ -1127,7 +1277,7 @@ elif current_step == 5 and mode == "create":
     with nav_col1:
         if st.button("← 이 단계 카드 다시 고르기", use_container_width=True):
             clear_stages_from(stage_idx)
-            reset_story_session(keep_title=True, keep_cards=False)
+            reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             go_step(4)
             st.rerun()
             st.stop()
@@ -1140,7 +1290,7 @@ elif current_step == 5 and mode == "create":
                 disabled=not stage_completed,
             ):
                 st.session_state["current_stage_idx"] = stage_idx + 1
-                reset_story_session(keep_title=True, keep_cards=False)
+                reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
                 go_step(4)
                 st.rerun()
                 st.stop()
@@ -1151,7 +1301,7 @@ elif current_step == 5 and mode == "create":
                 disabled=not stage_completed,
             ):
                 st.session_state["step"] = 6
-                reset_story_session(keep_title=True, keep_cards=False)
+                reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
                 st.rerun()
                 st.stop()
     with nav_col3:
@@ -1193,7 +1343,7 @@ elif current_step == 6 and mode == "create":
 
         if st.button("남은 단계 이어가기 →", use_container_width=True):
             st.session_state["current_stage_idx"] = next_stage_idx
-            reset_story_session(keep_title=True, keep_cards=False)
+            reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.session_state["step"] = 4
             st.rerun()
         st.stop()
