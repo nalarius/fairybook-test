@@ -22,6 +22,8 @@ There is no automated suite yet; favor `pytest` with files named `test_*.py`. Mo
 ## Commit & Pull Request Guidelines
 Use concise, imperative commit subjects (e.g., `Refine story selection state`). Group logical changes; avoid bundling asset updates with code unless required. PRs should describe motivation, implementation notes, local verification steps, and attach UI screenshots or clips for visible changes. Link related issues and call out follow-up work so reviewers can queue next tasks.
 
+**Agent workflow note:** Only perform `git commit` when the user explicitly requests it. Otherwise stage changes and report status without creating commits.
+
 ## Secrets & Configuration Tips
 Store `GEMINI_API_KEY` in `.env` (never commit it). Document any new environment variables in this file and add safe defaults. Large media belongs in remote storage; keep `illust/` limited to optimized PNGs so repo clones stay small. Rotate API keys immediately if they leak in logs or drafts.
 
