@@ -13,7 +13,7 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 3. Step 1: Provide an idea, try each age band, and confirm the form advances.
 4. Step 2: Verify eight story-type cards load with the expected thumbnails and that clicking **제목 만들기** produces a title.
 5. Step 3: Confirm the cover illustration appears, the style name is recorded, and **계속해서 이야기 만들기** moves you forward without regenerating the style.
-6. Step 4: Ensure four narrative cards appear, switch between them, and trigger **이 단계 이야기 만들기**.
+6. Step 4: Ensure four narrative cards appear, switch between them, and trigger **이 단계 이야기 만들기** (when you reach 결말, 확인해 `ending.json` 카드 세트가 노출되는지 반드시 점검).
 7. Step 5: Check that the loading spinner appears, the story paragraphs render alongside the stage illustration, and no download buttons are present.
 8. Generate at least two stories covering 다른 이야기 톤 (예: 하나는 밝고 희망적인 방향, 다른 하나는 서늘하거나 비극적인 방향)으로 각각 다른 type/card 조합을 사용하고, 두 결과를 비교해 톤이 다양하게 반영됐는지 확인한다.
 

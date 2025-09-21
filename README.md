@@ -45,7 +45,7 @@ The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the
 1. Pick an age group and describe the idea or theme.
 2. Choose one of eight randomized story types and generate a title with Gemini.
 3. Review the generated title and cover illustration, then continue when satisfied.
-4. Pick one of four narrative cards drawn from `story.json` to steer each stage of the plot.
+4. Pick one of four narrative cards drawn from `story.json` (the final stage automatically swaps in `ending.json` cards so the conclusion matches the desired mood).
 5. Let Gemini write the current stage and create its illustration; repeat until all five stages are complete.
 6. Open **전체 이야기를 모아봤어요** to review the full sequence and export a single HTML file. Use **📂 저장본 보기** any time to browse previously exported stories under `html_exports/`.
 

@@ -8,7 +8,7 @@ Fairybook is a six-step Streamlit experience for building Korean children's stor
 - **Step 1 – Audience & idea**: Form widgets write to transient keys (`age_input`, `topic_input`). Confirmed values are copied to `age` and `topic` only upon form submission.
 - **Step 2 – Story type & title**: Eight random archetypes from `storytype.json` feed the thumbnail picker. Once a type is confirmed, Gemini generates a title using that type's prompt.
 - **Step 3 – Cover preview**: The generated title immediately feeds cover-art creation, locks in the illustration style for the remainder of the session, and lets the user confirm before proceeding.
-- **Step 4 – Narrative card selection**: Four cards sampled from `story.json` steer the current stage. Users can re-sample cards or backtrack without losing the cover art or selected style.
+- **Step 4 – Narrative card selection**: Four cards sampled from `story.json` steer the current stage (the finale automatically draws from `ending.json` so the conclusion can lean 밝음·비극·열림 등 원하는 톤으로 갈무리된다). Users can re-sample cards or backtrack without losing the cover art or selected style.
 - **Step 5 – Stage results**: Gemini writes the requested stage using summaries of prior stages to maintain continuity while regenerating the illustration with the locked style. The UI now omits per-stage download buttons to keep the reading experience uncluttered.
 - **Step 6 – Saved story recap**: When all stages are complete, the full story appears with cover and stage separators plus a single HTML export action. The same viewer powers **📂 저장본 보기** for past exports.
 
@@ -43,6 +43,7 @@ All JSON files are UTF-8 encoded and loaded lazily so Streamlit reruns stay resp
 ## Error Handling & UX Feedback
 - Missing secrets, empty JSON payloads, and Gemini safety blocks propagate as structured `{"error": ...}` dictionaries so the UI can surface localized Korean messages.
 - HTML exports convert images to base64 data URIs, making each bundle self-contained. Filenames use a timestamp plus slugified title to prevent collisions.
+- If Gemini returns verbose text around the JSON payload, `_extract_first_json_object()` slices out the first object so stage generation can recover without surfacing raw parsing errors.
 - When illustration generation fails, the UI surfaces the prompt for debugging and encourages the user to retry before moving on; the locked style ensures later stages stay visually consistent once a cover is accepted.
 
 ## Extending the App
