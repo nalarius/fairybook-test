@@ -721,7 +721,7 @@ elif current_step == 3:
 # ─────────────────────────────────────────────────────────────────────
 # STEP 4 — 이야기 카드 선택
 # ─────────────────────────────────────────────────────────────────────
-elif current_step == 4:
+elif current_step == 4 and mode == "create":
     stage_idx = st.session_state.get("current_stage_idx", 0)
     if stage_idx >= len(STORY_PHASES):
         st.session_state["step"] = 6
@@ -866,7 +866,7 @@ elif current_step == 4:
 # ─────────────────────────────────────────────────────────────────────
 # STEP 5 — 생성 중 상태 & 결과 보기
 # ─────────────────────────────────────────────────────────────────────
-elif current_step == 5:
+elif current_step == 5 and mode == "create":
     stage_idx = st.session_state.get("current_stage_idx", 0)
     if stage_idx >= len(STORY_PHASES):
         st.session_state["step"] = 6
