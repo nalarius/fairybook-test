@@ -27,6 +27,15 @@ ILLUST_DIR = "illust"
 HTML_EXPORT_DIR = "html_exports"
 HTML_EXPORT_PATH = Path(HTML_EXPORT_DIR)
 
+STORY_PHASES = ["발단", "전개", "위기", "절정", "결말"]
+STAGE_GUIDANCE = {
+    "발단": "주인공과 배경을 생생하게 소개하고 모험의 씨앗이 되는 사건을 담아주세요. 기대와 호기심, 포근함이 교차하도록 만듭니다.",
+    "전개": "모험이 본격적으로 굴러가며 갈등이 커지도록 전개하세요. 긴장과 재미가 번갈아 오가고, 숨 돌릴 따뜻한 장면도 잊지 마세요.",
+    "위기": "이야기의 가장 큰 위기가 찾아옵니다. 위험과 두려움이 느껴지되, 인물 간의 믿음과 재치도 함께 드러나야 합니다.",
+    "절정": "결정적인 선택이나 행동으로 이야기가 뒤집히는 순간입니다. 장엄하거나 아슬아슬한 분위기와 함께 감정이 폭발하도록 그려주세요.",
+    "결말": "사건의 여파를 정리하면서 여운을 남기세요. 밝은 마무리든 씁쓸한 끝맺음이든 자연스럽게 수용하고, 아이가 상상할 여백을 둡니다.",
+}
+
 HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
 @st.cache_data
@@ -75,6 +84,9 @@ def ensure_state():
     st.session_state.setdefault("mode", None)
     st.session_state.setdefault("age", None)               # 확정된 값(제출 후 저장)
     st.session_state.setdefault("topic", None)             # 확정된 값(제출 후 저장)
+    st.session_state.setdefault("current_stage_idx", 0)
+    if "stages_data" not in st.session_state or len(st.session_state["stages_data"]) != len(STORY_PHASES):
+        st.session_state["stages_data"] = [None] * len(STORY_PHASES)
     # 입력폼 위젯 전용 임시 키(위젯 값 저장용). 최초 렌더에만 기본값 세팅
     st.session_state.setdefault("age_input", "6-8")
     st.session_state.setdefault("topic_input", "")
@@ -99,6 +111,12 @@ def ensure_state():
     st.session_state.setdefault("selected_export", None)
     st.session_state.setdefault("is_generating_title", False)
     st.session_state.setdefault("is_generating_story", False)
+    st.session_state.setdefault("story_style_choice", None)
+    st.session_state.setdefault("cover_image", None)
+    st.session_state.setdefault("cover_image_mime", "image/png")
+    st.session_state.setdefault("cover_image_style", None)
+    st.session_state.setdefault("cover_image_error", None)
+    st.session_state.setdefault("cover_prompt", None)
 
 ensure_state()
 
@@ -143,6 +161,7 @@ def reset_all_state():
         "topic_input",
         "rand8",
         "selected_type_idx",
+        "current_stage_idx",
         "story_error",
         "story_result",
         "story_prompt",
@@ -159,6 +178,13 @@ def reset_all_state():
         "selected_export",
         "is_generating_title",
         "is_generating_story",
+        "stages_data",
+        "story_style_choice",
+        "cover_image",
+        "cover_image_mime",
+        "cover_image_style",
+        "cover_image_error",
+        "cover_prompt",
     ]
 
     for key in keys:
@@ -166,6 +192,25 @@ def reset_all_state():
 
     st.session_state["mode"] = None
     st.session_state["step"] = 0
+
+
+def clear_stages_from(index: int):
+    stages = st.session_state.get("stages_data") or []
+    if not stages:
+        return
+    clamped = max(0, min(index, len(stages)))
+    for i in range(clamped, len(stages)):
+        stages[i] = None
+    st.session_state["stages_data"] = stages
+
+
+def reset_cover_art():
+    st.session_state["cover_image"] = None
+    st.session_state["cover_image_mime"] = "image/png"
+    st.session_state["cover_image_style"] = None
+    st.session_state["cover_image_error"] = None
+    st.session_state["cover_prompt"] = None
+    st.session_state["story_style_choice"] = None
 
 
 def list_html_exports() -> list[Path]:
@@ -188,35 +233,48 @@ def _slugify_filename(value: str) -> str:
 def _build_story_html_document(
     *,
     title: str,
-    paragraphs: list[str],
     age: str,
     topic: str,
     story_type: str,
-    style_name: str | None,
-    image_data_uri: str | None,
+    stages: list[dict],
+    cover: dict | None = None,
 ) -> str:
     escaped_title = html.escape(title)
-    topic_text = topic if topic else "(빈칸)"
-    meta_parts = [
-        f"<strong>나이대:</strong> {html.escape(age)}",
-        f"<strong>주제:</strong> {html.escape(topic_text)}",
-        f"<strong>이야기 유형:</strong> {html.escape(story_type)}",
-    ]
-    if style_name:
-        meta_parts.append(f"<strong>삽화 스타일:</strong> {html.escape(style_name)}")
-    meta_html = " · ".join(meta_parts)
 
-    paragraphs_html = "\n".join(
-        f"        <p>{html.escape(paragraph)}</p>" for paragraph in paragraphs
-    ) or "        <p>(본문이 없습니다)</p>"
+    cover_section = ""
+    if cover and cover.get("image_data_uri"):
+        cover_section = (
+            "    <section class=\"cover\">\n"
+            "        <figure>\n"
+            f"            <img src=\"{cover.get('image_data_uri')}\" alt=\"{escaped_title} 표지\" />\n"
+            "        </figure>\n"
+            "    </section>\n"
+        )
 
-    image_section = ""
-    if image_data_uri:
+    stage_sections: list[str] = []
+    for idx, stage in enumerate(stages, start=1):
+        image_data_uri = stage.get("image_data_uri") or ""
+        paragraphs = stage.get("paragraphs") or []
+
+        paragraphs_html = "\n".join(
+            f"            <p>{html.escape(paragraph)}</p>" for paragraph in paragraphs
+        ) or "            <p>(본문이 없습니다)</p>"
+
         image_section = (
             "        <figure>\n"
             f"            <img src=\"{image_data_uri}\" alt=\"{escaped_title} 삽화\" />\n"
             "        </figure>\n"
+        ) if image_data_uri else ""
+
+        section_html = (
+            "    <section class=\"stage\">\n"
+            f"{image_section}"
+            f"{paragraphs_html}\n"
+            "    </section>\n"
         )
+        stage_sections.append(section_html)
+
+    stages_html = "".join(stage_sections)
 
     return (
         "<!DOCTYPE html>\n"
@@ -226,61 +284,83 @@ def _build_story_html_document(
         f"    <title>{escaped_title}</title>\n"
         "    <style>\n"
         "        body { font-family: 'Noto Sans KR', sans-serif; margin: 2rem; background: #faf7f2; color: #2c2c2c; }\n"
-        "        header { margin-bottom: 2rem; }\n"
+        "        header { margin-bottom: 2.5rem; }\n"
         "        h1 { font-size: 2rem; margin-bottom: 0.5rem; }\n"
-        "        .meta { color: #555; margin-bottom: 1.5rem; }\n"
-        "        figure { text-align: center; margin: 2rem auto; }\n"
-        "        figure img { max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }\n"
-        "        p { line-height: 1.6; font-size: 1.05rem; margin-bottom: 1rem; }\n"
+        "        .cover { margin-bottom: 3rem; }\n"
+        "        .stage { margin-bottom: 3rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(0,0,0,0.08); }\n"
+        "        .stage:last-of-type { border-bottom: none; }\n"
+        "        figure { text-align: center; margin: 1.5rem auto; }\n"
+        "        figure img { max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.12); }\n"
+        "        figcaption { font-size: 0.9rem; color: #666; margin-top: 0.5rem; }\n"
+        "        p { line-height: 1.65; font-size: 1.05rem; margin-bottom: 1rem; }\n"
         "    </style>\n"
         "</head>\n"
         "<body>\n"
         "    <header>\n"
         f"        <h1>{escaped_title}</h1>\n"
-        f"        <p class=\"meta\">{meta_html}</p>\n"
         "    </header>\n"
-        "    <section>\n"
-        f"{image_section}{paragraphs_html}\n"
-        "    </section>\n"
+        f"{cover_section}{stages_html}"
         "</body>\n"
         "</html>\n"
     )
 
 
 def export_story_to_html(
-    story: dict,
-    image_bytes: bytes | None,
-    image_mime: str | None,
     *,
+    title: str,
     age: str,
     topic: str | None,
     story_type: str,
-    style_name: str | None,
+    stages: list[dict],
+    cover: dict | None = None,
 ) -> str:
-    """이야기와 삽화를 하나의 HTML 파일로 저장하고 경로를 반환."""
+    """다단계 이야기와 삽화를 하나의 HTML 파일로 저장하고 경로를 반환."""
     HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
-    title = (story.get("title") or "동화").strip()
-    paragraphs = story.get("paragraphs") or []
+    normalized_stages: list[dict] = []
+    for stage in stages:
+        paragraphs_raw = stage.get("paragraphs") or []
+        paragraphs = [str(p).strip() for p in paragraphs_raw if str(p).strip()]
+        image_bytes = stage.get("image_bytes")
+        image_mime = stage.get("image_mime") or "image/png"
+        image_data_uri = None
+        if image_bytes:
+            encoded = base64.b64encode(image_bytes).decode("utf-8")
+            image_data_uri = f"data:{image_mime};base64,{encoded}"
 
-    image_data_uri = None
-    if image_bytes:
-        mime = image_mime or "image/png"
+        normalized_stages.append(
+            {
+                "stage_name": stage.get("stage_name", "단계"),
+                "card_name": stage.get("card_name"),
+                "card_prompt": stage.get("card_prompt"),
+                "paragraphs": paragraphs,
+                "image_data_uri": image_data_uri,
+                "image_style_name": stage.get("image_style_name"),
+            }
+        )
+
+    cover_section = None
+    if cover and cover.get("image_bytes"):
+        image_bytes = cover.get("image_bytes")
+        image_mime = cover.get("image_mime") or "image/png"
         encoded = base64.b64encode(image_bytes).decode("utf-8")
-        image_data_uri = f"data:{mime};base64,{encoded}"
+        cover_section = {
+            "image_data_uri": f"data:{image_mime};base64,{encoded}",
+            "style_name": cover.get("style_name"),
+        }
 
+    safe_title = title.strip() or "동화"
     html_doc = _build_story_html_document(
-        title=title or "동화",
-        paragraphs=[str(p) for p in paragraphs],
+        title=safe_title,
         age=age,
         topic=topic or "",
         story_type=story_type,
-        style_name=style_name,
-        image_data_uri=image_data_uri,
+        stages=normalized_stages,
+        cover=cover_section,
     )
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    slug = _slugify_filename(title)
+    slug = _slugify_filename(safe_title)
     filename = f"{timestamp}_{slug}.html"
     export_path = HTML_EXPORT_PATH / filename
 
@@ -297,9 +377,24 @@ progress_placeholder = st.empty()
 mode = st.session_state.get("mode")
 current_step = st.session_state["step"]
 
-if mode == "create" and current_step in (1, 2, 3, 4):
-    progress_map = {1: 0.25, 2: 0.5, 3: 0.75, 4: 1.0}
-    progress_placeholder.progress(progress_map.get(current_step, 0.0))
+if mode == "create" and current_step > 0:
+    total_phases = len(STORY_PHASES)
+    completed_stages = sum(1 for stage in st.session_state.get("stages_data", []) if stage)
+    progress_value = 0.0
+    if current_step == 1:
+        progress_value = 0.15
+    elif current_step == 2:
+        progress_value = 0.25
+    elif current_step in (3, 4):
+        stage_share = completed_stages / total_phases if total_phases else 0.0
+        progress_value = 0.25 + stage_share * 0.65
+    elif current_step == 5:
+        if completed_stages >= total_phases:
+            progress_value = 1.0
+        else:
+            stage_share = completed_stages / total_phases if total_phases else 0.0
+            progress_value = 0.25 + stage_share * 0.65
+    progress_placeholder.progress(min(progress_value, 1.0))
 else:
     progress_placeholder.empty()
 
@@ -320,8 +415,11 @@ if current_step == 0:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✏️ 동화 만들기", use_container_width=True):
+            reset_all_state()
+            ensure_state()
             st.session_state["mode"] = "create"
             st.session_state["step"] = 1
+            st.rerun()
     with c2:
         view_clicked = st.button(
             "📂 저장본 보기",
@@ -364,6 +462,10 @@ elif current_step == 1:
 
     if go_next:
         # 이 시점에만 확정 키로 복사
+        reset_story_session(keep_title=False, keep_cards=False)
+        clear_stages_from(0)
+        reset_cover_art()
+        st.session_state["current_stage_idx"] = 0
         st.session_state["age"] = st.session_state["age_input"]
         st.session_state["topic"] = (st.session_state["topic_input"] or "").strip()
         st.session_state["step"] = 2
@@ -410,8 +512,75 @@ elif current_step == 2:
             else:
                 title_text = result.get("title", "").strip()
                 reset_story_session(keep_title=False, keep_cards=False)
+                clear_stages_from(0)
+                reset_cover_art()
+                st.session_state["current_stage_idx"] = 0
                 st.session_state["story_title"] = title_text
                 st.session_state["story_title_error"] = None
+
+                story_type_name = selected_type.get("name", "이야기 유형")
+                cover_paragraphs: list[str] = []
+                if type_prompt:
+                    cover_paragraphs.append(type_prompt)
+                if topic_val:
+                    cover_paragraphs.append(f"주제 아이디어: {topic_val}")
+                cover_paragraphs.append(
+                    f"{story_type_name} 분위기를 담은 이야기의 표지를 그려 주세요."
+                )
+
+                if illust_styles:
+                    style_choice = random.choice(illust_styles)
+                    style_info = {
+                        "name": style_choice.get("name"),
+                        "style": style_choice.get("style"),
+                    }
+                    st.session_state["story_style_choice"] = style_info
+                    st.session_state["cover_image_style"] = style_info
+                else:
+                    st.session_state["story_style_choice"] = None
+                    st.session_state["cover_image_error"] = "illust_styles.json에서 사용할 수 있는 스타일을 찾지 못했습니다."
+
+                if cover_paragraphs and st.session_state.get("story_style_choice"):
+                    cover_story = {
+                        "title": title_text,
+                        "paragraphs": cover_paragraphs,
+                    }
+                    prompt_data = build_image_prompt(
+                        story=cover_story,
+                        age=age_val,
+                        topic=topic_val,
+                        story_type_name=story_type_name,
+                        story_card_name="표지 컨셉",
+                        stage_name="표지",
+                        style_override=st.session_state["story_style_choice"],
+                    )
+
+                    if "error" in prompt_data:
+                        st.session_state["cover_image_error"] = prompt_data["error"]
+                        st.session_state["cover_prompt"] = None
+                        st.session_state["cover_image"] = None
+                        st.session_state["cover_image_mime"] = "image/png"
+                    else:
+                        st.session_state["cover_prompt"] = prompt_data.get("prompt")
+                        style_info = {
+                            "name": prompt_data.get("style_name"),
+                            "style": prompt_data.get("style_text"),
+                        }
+                        st.session_state["story_style_choice"] = style_info
+                        st.session_state["cover_image_style"] = style_info
+
+                        image_response = generate_image_with_gemini(prompt_data["prompt"])
+                        if "error" in image_response:
+                            st.session_state["cover_image_error"] = image_response["error"]
+                            st.session_state["cover_image"] = None
+                            st.session_state["cover_image_mime"] = "image/png"
+                        else:
+                            st.session_state["cover_image_error"] = None
+                            st.session_state["cover_image"] = image_response.get("bytes")
+                            st.session_state["cover_image_mime"] = image_response.get("mime_type", "image/png")
+                elif not st.session_state.get("story_style_choice"):
+                    st.session_state["cover_image_error"] = "표지 스타일을 선택하지 못했습니다."
+
                 st.session_state["step"] = 3
 
         st.session_state["is_generating_title"] = False
@@ -446,6 +615,21 @@ elif current_step == 2:
         st.error(st.session_state["story_title_error"])
     elif title_existing:
         st.info(f"생성된 제목: **{title_existing}**")
+        cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
+        cover_image = st.session_state.get("cover_image")
+        cover_error = st.session_state.get("cover_image_error")
+        cover_prompt = st.session_state.get("cover_prompt")
+        if cover_image:
+            caption = "표지 일러스트"
+            if cover_style and cover_style.get("name"):
+                caption = f"표지 일러스트 · {cover_style.get('name')} 스타일"
+            st.image(cover_image, caption=caption, use_container_width=True)
+        elif cover_error:
+            st.warning(f"표지 일러스트 생성 실패: {cover_error}")
+
+        if cover_prompt:
+            with st.expander("표지 이미지 프롬프트 보기", expanded=False):
+                st.code(cover_prompt)
 
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     with btn_col1:
@@ -460,6 +644,16 @@ elif current_step == 2:
             use_container_width=True,
             disabled=not st.session_state.get("story_title"),
         ):
+            try:
+                next_stage_idx = next(
+                    idx
+                    for idx, entry in enumerate(st.session_state.get("stages_data") or [])
+                    if not entry
+                )
+            except StopIteration:
+                next_stage_idx = len(STORY_PHASES) - 1
+            st.session_state["current_stage_idx"] = max(0, next_stage_idx)
+            reset_story_session(keep_title=True, keep_cards=False)
             st.session_state["step"] = 3
             st.rerun()
             st.stop()
@@ -468,6 +662,9 @@ elif current_step == 2:
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types))) if story_types else []
             st.session_state["selected_type_idx"] = 0
             reset_story_session()
+            clear_stages_from(0)
+            reset_cover_art()
+            st.session_state["current_stage_idx"] = 0
             st.rerun()
             st.stop()
 
@@ -475,6 +672,9 @@ elif current_step == 2:
     with back_col:
         if st.button("← 나이/주제 다시 선택", use_container_width=True):
             reset_story_session()
+            clear_stages_from(0)
+            reset_cover_art()
+            st.session_state["current_stage_idx"] = 0
             go_step(1)
             st.rerun()
             st.stop()
@@ -488,7 +688,14 @@ elif current_step == 2:
 # STEP 3 — 이야기 카드 선택
 # ─────────────────────────────────────────────────────────────────────
 elif current_step == 3:
-    st.subheader("3단계. 이야기 카드를 골라보세요")
+    stage_idx = st.session_state.get("current_stage_idx", 0)
+    if stage_idx >= len(STORY_PHASES):
+        st.session_state["step"] = 5
+        st.rerun()
+        st.stop()
+
+    stage_name = STORY_PHASES[stage_idx]
+    st.subheader(f"3단계. {stage_idx + 1}단계 {stage_name}에 어울리는 이야기 카드를 골라보세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -507,10 +714,6 @@ elif current_step == 3:
             st.stop()
         st.stop()
 
-    age_val = st.session_state["age"] if st.session_state["age"] else "6-8"
-    topic_val = st.session_state["topic"] if (st.session_state["topic"] is not None) else ""
-    topic_display = topic_val if topic_val else "(빈칸)"
-
     rand8 = st.session_state.get("rand8") or []
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
@@ -519,11 +722,33 @@ elif current_step == 3:
             st.rerun()
             st.stop()
         st.stop()
+
     selected_type_idx = st.session_state.get("selected_type_idx", 0)
     if selected_type_idx >= len(rand8):
         selected_type_idx = max(0, len(rand8) - 1)
         st.session_state["selected_type_idx"] = selected_type_idx
     selected_type = rand8[selected_type_idx]
+
+    age_val = st.session_state["age"] if st.session_state["age"] else "6-8"
+    topic_val = st.session_state["topic"] if (st.session_state["topic"] is not None) else ""
+    topic_display = topic_val if topic_val else "(빈칸)"
+
+    guidance = STAGE_GUIDANCE.get(stage_name)
+    if guidance:
+        st.caption(guidance)
+
+    style_choice = st.session_state.get("story_style_choice")
+    if style_choice and style_choice.get("name"):
+        st.caption(f"삽화 스타일은 **{style_choice.get('name')}**로 유지됩니다.")
+
+    previous_sections = [entry for entry in (st.session_state.get("stages_data") or [])[:stage_idx] if entry]
+    if previous_sections:
+        with st.expander("이전 단계 줄거리 다시 보기", expanded=False):
+            for idx, entry in enumerate(previous_sections, start=1):
+                stage_label = entry.get("stage") or f"단계 {idx}"
+                st.markdown(f"**{stage_label}** — {entry.get('card', {}).get('name', '카드 미지정')}")
+                for paragraph in entry.get("story", {}).get("paragraphs", []):
+                    st.write(paragraph)
 
     cards = st.session_state.get("story_cards_rand4")
     if not cards:
@@ -549,7 +774,12 @@ elif current_step == 3:
     st.caption(
         f"나이대: **{age_val}** · 주제: **{topic_display}** · 이야기 유형: **{selected_type.get('name', '이야기 유형')}**"
     )
-    st.caption("카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요.")
+    cover_image = st.session_state.get("cover_image")
+    if cover_image:
+        st.image(cover_image, caption="표지 일러스트", use_container_width=True)
+    elif st.session_state.get("cover_image_error"):
+        st.caption("표지 일러스트를 준비하지 못했어요.")
+    st.caption("카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요. 단계별로 생성된 내용은 자동으로 이어집니다.")
 
     card_images = [os.path.join(ILLUST_DIR, card.get("illust", "")) for card in cards]
     card_captions = [card.get("name", "이야기 카드") for card in cards]
@@ -571,8 +801,14 @@ elif current_step == 3:
     if card_prompt:
         st.caption(card_prompt)
 
-    if st.button("이야기 만들기", type="primary", use_container_width=True):
+    stages_data = st.session_state.get("stages_data") or []
+    existing_stage = stages_data[stage_idx] if stage_idx < len(stages_data) else None
+    if existing_stage:
+        st.warning("이미 완성된 단계가 있어 새로 만들면 덮어씁니다.")
+
+    if st.button("이 단계 이야기 만들기", type="primary", use_container_width=True):
         reset_story_session(keep_title=True, keep_cards=True)
+        st.session_state["story_prompt"] = None
         st.session_state["is_generating_story"] = True
         st.session_state["step"] = 4
         st.rerun()
@@ -581,6 +817,8 @@ elif current_step == 3:
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
         if st.button("← 제목 다시 만들기", use_container_width=True):
+            clear_stages_from(0)
+            st.session_state["current_stage_idx"] = 0
             reset_story_session(keep_title=True, keep_cards=False)
             go_step(2)
             st.rerun()
@@ -600,7 +838,14 @@ elif current_step == 3:
 # STEP 4 — 생성 중 상태 & 결과 보기
 # ─────────────────────────────────────────────────────────────────────
 elif current_step == 4:
-    st.subheader("4단계. 완성된 동화를 만나보세요")
+    stage_idx = st.session_state.get("current_stage_idx", 0)
+    if stage_idx >= len(STORY_PHASES):
+        st.session_state["step"] = 5
+        st.rerun()
+        st.stop()
+
+    stage_name = STORY_PHASES[stage_idx]
+    st.subheader(f"4단계. {stage_idx + 1}단계 {stage_name} 이야기를 확인하세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -642,18 +887,35 @@ elif current_step == 4:
     card_name = selected_card.get("name", "이야기 카드")
     card_prompt = (selected_card.get("prompt") or "").strip()
 
+    previous_sections = []
+    for entry in (st.session_state.get("stages_data") or [])[:stage_idx]:
+        if not entry:
+            continue
+        previous_sections.append(
+            {
+                "stage": entry.get("stage"),
+                "card_name": entry.get("card", {}).get("name"),
+                "paragraphs": entry.get("story", {}).get("paragraphs", []),
+            }
+        )
+
     if st.session_state.get("is_generating_story"):
         st.header("동화를 준비하고 있어요 ✨")
-        st.caption("조금만 기다려 주세요. 선택한 카드에 맞춰 이야기를 생성하는 중입니다.")
+        st.caption(f"{stage_name} 단계에 맞춰 이야기를 확장하고 있습니다.")
 
-        with st.spinner("Gemini로 동화와 삽화를 준비 중..."):
+        with st.spinner("Gemini로 단계별 이야기와 삽화를 준비 중..."):
+            clear_stages_from(stage_idx)
             story_result = generate_story_with_gemini(
                 age=age_val,
                 topic=topic_val or None,
                 title=title_val,
                 story_type_name=selected_type.get("name", "이야기 유형"),
+                stage_name=stage_name,
+                stage_index=stage_idx,
+                total_stages=len(STORY_PHASES),
                 story_card_name=card_name,
                 story_card_prompt=card_prompt,
+                previous_sections=previous_sections,
             )
 
             if "error" in story_result:
@@ -673,7 +935,28 @@ elif current_step == 4:
                 st.session_state["story_card_choice"] = {
                     "name": card_name,
                     "prompt": card_prompt,
+                    "stage": stage_name,
                 }
+
+                style_choice = st.session_state.get("story_style_choice")
+                if not style_choice and illust_styles:
+                    fallback_style = random.choice(illust_styles)
+                    style_choice = {
+                        "name": fallback_style.get("name"),
+                        "style": fallback_style.get("style"),
+                    }
+                    st.session_state["story_style_choice"] = style_choice
+                elif not style_choice:
+                    st.session_state["story_error"] = "삽화 스타일을 불러오지 못했습니다. illust_styles.json을 확인해주세요."
+                    st.session_state["story_result"] = story_payload
+                    st.session_state["story_prompt"] = None
+                    st.session_state["story_image"] = None
+                    st.session_state["story_image_error"] = "삽화 스타일이 없어 생성을 중단했습니다."
+                    st.session_state["story_image_style"] = None
+                    st.session_state["story_image_mime"] = "image/png"
+                    st.session_state["is_generating_story"] = False
+                    st.rerun()
+                    st.stop()
 
                 prompt_data = build_image_prompt(
                     story=story_payload,
@@ -681,6 +964,8 @@ elif current_step == 4:
                     topic=topic_val,
                     story_type_name=selected_type.get("name", "이야기 유형"),
                     story_card_name=card_name,
+                    stage_name=stage_name,
+                    style_override=style_choice,
                 )
 
                 if "error" in prompt_data:
@@ -691,10 +976,12 @@ elif current_step == 4:
                     st.session_state["story_image_mime"] = "image/png"
                 else:
                     st.session_state["story_prompt"] = prompt_data["prompt"]
-                    st.session_state["story_image_style"] = {
-                        "name": prompt_data.get("style_name"),
-                        "style": prompt_data.get("style_text"),
+                    style_info = {
+                        "name": prompt_data.get("style_name") or (style_choice or {}).get("name"),
+                        "style": prompt_data.get("style_text") or (style_choice or {}).get("style"),
                     }
+                    st.session_state["story_image_style"] = style_info
+                    st.session_state["story_style_choice"] = style_info
 
                     image_response = generate_image_with_gemini(prompt_data["prompt"])
                     if "error" in image_response:
@@ -706,15 +993,35 @@ elif current_step == 4:
                         st.session_state["story_image"] = image_response.get("bytes")
                         st.session_state["story_image_mime"] = image_response.get("mime_type", "image/png")
 
+                stages_copy = list(st.session_state.get("stages_data") or [None] * len(STORY_PHASES))
+                while len(stages_copy) < len(STORY_PHASES):
+                    stages_copy.append(None)
+                stages_copy[stage_idx] = {
+                    "stage": stage_name,
+                    "card": {
+                        "name": card_name,
+                        "prompt": card_prompt,
+                    },
+                    "story": story_payload,
+                    "image_bytes": st.session_state.get("story_image"),
+                    "image_mime": st.session_state.get("story_image_mime"),
+                    "image_style": st.session_state.get("story_image_style"),
+                    "image_prompt": st.session_state.get("story_prompt"),
+                    "image_error": st.session_state.get("story_image_error"),
+                }
+                st.session_state["stages_data"] = stages_copy
+
         st.session_state["is_generating_story"] = False
         st.rerun()
         st.stop()
 
-    story_data = st.session_state.get("story_result")
     story_error = st.session_state.get("story_error")
+    stages_data = st.session_state.get("stages_data") or []
+    stage_entry = stages_data[stage_idx] if stage_idx < len(stages_data) else None
+    story_data = stage_entry.get("story") if stage_entry else st.session_state.get("story_result")
 
     if not story_data and not story_error:
-        st.info("이야기 카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요.")
+        st.info("이야기 카드를 선택한 뒤 ‘이 단계 이야기 만들기’ 버튼을 눌러주세요.")
         if st.button("이야기 카드 화면으로", use_container_width=True):
             go_step(3)
             st.rerun()
@@ -724,11 +1031,14 @@ elif current_step == 4:
     meta_caption = (
         f"나이대: **{age_val}** · 주제: **{topic_display}** · 이야기 유형: **{selected_type.get('name', '이야기 유형')}**"
     )
-
-    display_title = story_data.get("title", title_val) if story_data else title_val
-    st.subheader(display_title)
     st.caption(meta_caption)
-    st.caption(f"선택한 이야기 카드: **{card_name}**")
+    if stage_idx == 0:
+        cover_image = st.session_state.get("cover_image")
+        if cover_image:
+            st.image(cover_image, caption="표지 일러스트", use_container_width=True)
+        elif st.session_state.get("cover_image_error"):
+            st.caption("표지 일러스트를 준비하지 못했어요.")
+    st.caption(f"현재 단계: **{stage_name}** · 선택한 이야기 카드: **{card_name}**")
     if card_prompt:
         st.caption(card_prompt)
 
@@ -743,7 +1053,8 @@ elif current_step == 4:
                 st.stop()
         with card_col:
             if st.button("카드 다시 고르기", use_container_width=True):
-                reset_story_session(keep_title=True, keep_cards=True)
+                clear_stages_from(stage_idx)
+                reset_story_session(keep_title=True, keep_cards=False)
                 go_step(3)
                 st.rerun()
                 st.stop()
@@ -760,22 +1071,24 @@ elif current_step == 4:
     for paragraph in story_data.get("paragraphs", []):
         st.write(paragraph)
 
+    stage_title_for_file = f"{title_val}_{stage_name}".replace(" ", "_")
     st.download_button(
-        "텍스트 다운로드",
+        "이 단계 텍스트 다운로드",
         data=(
             story_data.get("title", title_val)
             + "\n\n"
             + "\n".join(story_data.get("paragraphs", []))
         ),
-        file_name="fairytale.txt",
+        file_name=f"{_slugify_filename(stage_title_for_file)}.txt",
         mime="text/plain",
         use_container_width=True,
     )
 
-    style_info = st.session_state.get("story_image_style")
-    image_bytes = st.session_state.get("story_image")
-    image_error = st.session_state.get("story_image_error")
-    image_mime = st.session_state.get("story_image_mime")
+    style_info = stage_entry.get("image_style") if stage_entry else st.session_state.get("story_image_style")
+    if not style_info:
+        style_info = st.session_state.get("story_style_choice")
+    image_bytes = stage_entry.get("image_bytes") if stage_entry else st.session_state.get("story_image")
+    image_error = stage_entry.get("image_error") if stage_entry else st.session_state.get("story_image_error")
 
     if style_info:
         st.caption(f"삽화 스타일: {style_info.get('name', '알 수 없음')}")
@@ -785,16 +1098,143 @@ elif current_step == 4:
     elif image_error:
         st.warning(f"삽화 생성 실패: {image_error}")
 
+    prompt_text = stage_entry.get("image_prompt") if stage_entry else st.session_state.get("story_prompt")
+    if prompt_text:
+        with st.expander("이 단계 이미지 프롬프트 보기", expanded=False):
+            st.code(prompt_text)
+
+    nav_col1, nav_col2, nav_col3 = st.columns(3)
+    with nav_col1:
+        if st.button("← 이 단계 카드 다시 고르기", use_container_width=True):
+            clear_stages_from(stage_idx)
+            reset_story_session(keep_title=True, keep_cards=False)
+            go_step(3)
+            st.rerun()
+            st.stop()
+    with nav_col2:
+        stage_completed = stage_entry is not None
+        if stage_idx < len(STORY_PHASES) - 1:
+            if st.button(
+                "다음 단계로 →",
+                use_container_width=True,
+                disabled=not stage_completed,
+            ):
+                st.session_state["current_stage_idx"] = stage_idx + 1
+                reset_story_session(keep_title=True, keep_cards=False)
+                go_step(3)
+                st.rerun()
+                st.stop()
+        else:
+            if st.button(
+                "전체 이야기 모아보기 →",
+                use_container_width=True,
+                disabled=not stage_completed,
+            ):
+                st.session_state["step"] = 5
+                reset_story_session(keep_title=True, keep_cards=False)
+                st.rerun()
+                st.stop()
+    with nav_col3:
+        if st.button("모두 초기화", use_container_width=True):
+            reset_all_state()
+            st.rerun()
+            st.stop()
+
+    if stage_entry and stage_idx < len(STORY_PHASES) - 1:
+        if st.button("지금까지 이야기 모아보기", use_container_width=True):
+            st.session_state["step"] = 5
+            st.rerun()
+            st.stop()
+
+elif current_step == 5 and mode == "create":
+    st.subheader("5단계. 전체 이야기를 모아봤어요")
+
+    title_val = (st.session_state.get("story_title") or "동화").strip()
+    age_val = st.session_state.get("age") or "6-8"
+    topic_val = st.session_state.get("topic") or ""
+    topic_display = topic_val if topic_val else "(빈칸)"
+    rand8 = st.session_state.get("rand8") or []
+    selected_type_idx = st.session_state.get("selected_type_idx", 0)
+    story_type_name = (
+        rand8[selected_type_idx].get("name", "이야기 유형")
+        if 0 <= selected_type_idx < len(rand8)
+        else "이야기 유형"
+    )
+
+    stages_data = st.session_state.get("stages_data") or []
+    completed_stages = [entry for entry in stages_data if entry]
+
+    if len(completed_stages) < len(STORY_PHASES):
+        st.info("아직 모든 단계가 완성되지 않았어요. 남은 단계를 이어가면 이야기가 더 풍성해집니다.")
+        try:
+            next_stage_idx = next(idx for idx, entry in enumerate(stages_data) if not entry)
+        except StopIteration:
+            next_stage_idx = len(STORY_PHASES) - 1
+
+        if st.button("남은 단계 이어가기 →", use_container_width=True):
+            st.session_state["current_stage_idx"] = next_stage_idx
+            reset_story_session(keep_title=True, keep_cards=False)
+            st.session_state["step"] = 3
+            st.rerun()
+        st.stop()
+
+    cover_image = st.session_state.get("cover_image")
+    cover_error = st.session_state.get("cover_image_error")
+    cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
+
+    export_ready_stages: list[dict] = []
+    display_sections: list[dict] = []
+    text_lines: list[str] = [title_val, ""]
+
+    for idx, stage_name in enumerate(STORY_PHASES):
+        entry = stages_data[idx] if idx < len(stages_data) else None
+        if not entry:
+            display_sections.append({"missing": stage_name})
+            continue
+        card_info = entry.get("card", {})
+        story_info = entry.get("story", {})
+        paragraphs = story_info.get("paragraphs", [])
+        text_lines.extend(paragraphs)
+        text_lines.append("")
+
+        export_ready_stages.append(
+            {
+                "stage_name": stage_name,
+                "card_name": card_info.get("name"),
+                "card_prompt": card_info.get("prompt"),
+                "paragraphs": paragraphs,
+                "image_bytes": entry.get("image_bytes"),
+                "image_mime": entry.get("image_mime"),
+                "image_style_name": (entry.get("image_style") or {}).get("name"),
+            }
+        )
+        display_sections.append(
+            {
+                "image_bytes": entry.get("image_bytes"),
+                "image_error": entry.get("image_error"),
+                "paragraphs": paragraphs,
+            }
+        )
+
+    full_text = "\n".join(line for line in text_lines if line is not None)
+
+    cover_payload = None
+    if cover_image:
+        cover_payload = {
+            "image_bytes": cover_image,
+            "image_mime": st.session_state.get("cover_image_mime", "image/png"),
+            "style_name": (cover_style or {}).get("name"),
+        }
+
     if st.button("HTML로 저장", use_container_width=True):
         try:
             export_path = export_story_to_html(
-                story=story_data,
-                image_bytes=image_bytes,
-                image_mime=image_mime,
+                title=title_val,
                 age=age_val,
                 topic=topic_val,
-                story_type=selected_type.get("name", "이야기 유형"),
-                style_name=style_info.get("name") if style_info else None,
+                story_type=story_type_name,
+                stages=export_ready_stages,
+                cover=cover_payload,
             )
             st.session_state["story_export_path"] = export_path
             st.session_state["selected_export"] = export_path
@@ -802,35 +1242,62 @@ elif current_step == 4:
         except Exception as exc:
             st.error(f"HTML 저장 실패: {exc}")
 
+    st.markdown(f"### {title_val}")
+    if cover_image:
+        st.image(cover_image, use_container_width=True)
+    elif cover_error:
+        st.caption("표지 일러스트를 준비하지 못했어요.")
+
+    st.download_button(
+        "전체 텍스트 다운로드",
+        data=full_text,
+        file_name=f"{_slugify_filename(title_val)}_full.txt",
+        mime="text/plain",
+        use_container_width=True,
+    )
+
     last_export = st.session_state.get("story_export_path")
     if last_export:
         st.caption(f"최근 저장 파일: {last_export}")
 
-    prompt_text = st.session_state.get("story_prompt")
-    if prompt_text:
-        with st.expander("이미지 프롬프트 보기", expanded=False):
-            st.code(prompt_text)
+    for idx, section in enumerate(display_sections):
+        if section.get("missing"):
+            st.warning("이야기 단계가 비어 있습니다. 다시 생성해 주세요.")
+            continue
 
-    nav_col1, nav_col2, nav_col3 = st.columns(3)
-    with nav_col1:
-        if st.button("← 이야기 카드 다시 고르기", use_container_width=True):
-            reset_story_session(keep_title=True, keep_cards=True)
-            go_step(3)
-            st.rerun()
-            st.stop()
-    with nav_col2:
-        if st.button("새로운 4개 뽑기", use_container_width=True):
-            reset_story_session(keep_title=True, keep_cards=False)
-            go_step(3)
-            st.rerun()
-            st.stop()
-    with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        image_bytes = section.get("image_bytes")
+        image_error = section.get("image_error")
+        paragraphs = section.get("paragraphs") or []
+
+        if image_bytes:
+            st.image(image_bytes, use_container_width=True)
+        elif image_error:
+            st.caption("삽화를 준비하지 못했어요.")
+
+        for paragraph in paragraphs:
+            st.write(paragraph)
+
+        if idx < len(display_sections) - 1:
+            st.markdown("---")
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("← 첫 화면으로", use_container_width=True):
             reset_all_state()
             st.rerun()
-            st.stop()
+    with c2:
+        if st.button("✏️ 새 동화 만들기", use_container_width=True):
+            reset_all_state()
+            st.session_state["mode"] = "create"
+            st.session_state["step"] = 1
+            st.rerun()
+    with c3:
+        if st.button("📂 저장본 보기", use_container_width=True):
+            st.session_state["mode"] = "view"
+            st.session_state["step"] = 5
+            st.rerun()
 
-elif current_step == 5:
+elif current_step == 5 and mode == "view":
     st.subheader("저장된 동화 보기")
     exports = list_html_exports()
 

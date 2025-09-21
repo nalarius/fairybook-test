@@ -36,6 +36,14 @@ _STYLE_JSON_PATH = Path("illust_styles.json")
 
 _ILLUST_STYLES_CACHE: list[dict] | None = None
 
+_STAGE_GUIDANCE = {
+    "발단": "주인공과 배경, 출발 계기를 선명하게 보여주고 모험의 씨앗을 심어 주세요. 따뜻함과 호기심이 함께 느껴지도록 합니다.",
+    "전개": "주요 갈등과 사건을 키우며 인물들의 선택을 드러내세요. 긴장감과 숨 돌릴 따뜻한 순간이 번갈아 나오도록 합니다.",
+    "위기": "가장 큰 위기와 감정의 파고를 그려주세요. 위험과 두려움 속에서도 서로의 믿음이나 재치가 빛날 틈을 남깁니다.",
+    "절정": "결정적인 행동과 극적인 전환을 보여주세요. 장엄하거나 아슬아슬한 분위기 속에서 감정이 폭발하도록 합니다.",
+    "결말": "사건의 여파를 정리하며 여운을 남기세요. 밝거나 씁쓸한 결말 모두 가능하며, 다음 상상을 부르는 여백을 둡니다.",
+}
+
 
 def _extract_text_from_response(resp) -> str:
     """Gemini SDK 응답에서 텍스트 본문을 꺼낸다."""
@@ -133,36 +141,74 @@ def _build_story_prompt(
     topic: str | None,
     title: str,
     story_type_name: str,
+    stage_name: str,
+    stage_index: int,
+    total_stages: int,
     story_card_name: str,
     story_card_prompt: str,
+    previous_sections: list[dict] | None,
 ) -> str:
     topic_clean = (topic or "").strip()
     safe_title = json.dumps(title.strip(), ensure_ascii=False) if title else '"동화"'
-    return f"""당신은 어린이를 위한 동화 작가입니다.  
-입력으로 나이대, 주제, 확정된 제목, 이야기 유형, 그리고 상세한 이야기 카드 설명이 주어집니다.  
-이 정보를 모두 반영하여 **풍부하고 몰입감 있는 한국어 동화**를 완성하세요.  
+    stage_number = stage_index + 1
+    total_count = max(total_stages, stage_number)
+    stage_label = stage_name or f"{stage_number}단계"
+    stage_focus = _STAGE_GUIDANCE.get(stage_name, "이번 단계의 극적 역할을 명확하게 드러내며 사건과 감정을 전개하세요.")
 
-- 제공된 제목을 그대로 사용하며, 제목에 어울리는 분위기와 상징을 전개하세요.  
-- 이야기 카드 설명을 중심 갈등과 사건으로 적극 활용하세요.  
-- 나이대에 맞는 문장 길이와 어휘를 선택하고, 주제를 이야기 전체의 정서와 갈등 전개에 자연스럽게 녹여 주세요.  
-- 모험에는 위기나 갈등을 고려해 긴장감을 만들되, 안도와 기쁨이 숨 쉴 여백도 마련하세요. 착한 교훈으로만 마무리할 필요는 없습니다.  
-- 장면 묘사, 인물 감정, 대화를 고르게 넣어 아이가 쉽게 상상할 수 있도록 하세요.  
+    previous_sections = previous_sections or []
+    summary_lines: list[str] = []
+    for item in previous_sections:
+        label = item.get("stage") or item.get("stage_name") or f"단계 {len(summary_lines) + 1}"
+        card_name = item.get("card_name") or item.get("card")
+        paragraphs = item.get("paragraphs") or []
+        merged = " ".join(str(p).strip() for p in paragraphs if str(p).strip())
+        merged = merged[:600] if merged else "(간단한 요약이 없습니다)"
+        if card_name:
+            label = f"{label} ({card_name})"
+        summary_lines.append(f"{label}: {merged}")
 
-동화는 최소 500자 이상이며, 다음 JSON 구조로만 출력합니다.  
+    if summary_lines:
+        previous_block = "\n".join(f"- {line}" for line in summary_lines)
+    else:
+        previous_block = "- 아직 작성된 단계가 없습니다."
+
+    card_prompt_clean = (story_card_prompt or "").strip() or "(설명 없음)"
+
+    return f"""당신은 어린이를 위한 연속 동화 작가입니다.  
+이 동화는 총 {total_count}단계 구조(발단-전개-위기-절정-결말)로 진행되며, 지금은 {stage_number}단계 "{stage_label}"을 작성합니다.  
+앞선 단계들의 분위기와 인과를 이어가면서, 이번 단계만의 극적 역할을 분명히 하세요.  
+
+[이전 단계 요약]
+{previous_block}
+
+[이번 단계 카드]
+- 카드 이름: {story_card_name}
+- 카드 설명: {card_prompt_clean}
+
+[작성 지침]
+- {stage_focus}
+- 이전 단계와 자연스럽게 이어지도록 사건과 감정의 흐름을 조율하세요.
+- 밝은 순간과 서늘한 긴장감이 공존하도록 하고, 모험 속 위기와 숨 돌릴 유머나 따뜻함을 함께 담으세요.
+- 결말을 강요하지 말고 다양한 감정의 선택지를 열어 두되, 이번 단계가 전체 서사의 탄탄한 디딤돌이 되도록 하세요.
+- 나이대에 맞는 어휘와 리듬을 사용하고, 주제를 인물의 행동과 상징에 자연스럽게 녹여 주세요.
+- 장면 묘사, 인물의 감정, 대화를 균형 있게 배치해 아이가 장면을 선명하게 상상할 수 있도록 하세요.
+
+[출력 형식]
 {{
   "title": {safe_title},
-  "paragraphs": ["첫 단락", "둘째 단락", "셋째 단락 이상"]
-}}  
-- 단락은 최소 3개 이상이며, 각 단락은 2~4문장으로 작성하세요.  
-- 마지막 단락은 행복, 비극, 열린 결말 등 다양한 감정을 선택할 수 있으며, 교훈으로 정리할 필요는 없습니다.  
+  "paragraphs": ["첫 번째 단락", "두 번째 단락"]
+}}
+- JSON 이외의 설명이나 주석을 붙이지 마세요.
+- "paragraphs" 리스트는 정확히 2개의 단락을 담습니다. 각 단락은 2~3문장으로 작성해 리듬감 있게 전개하세요.
 
 [입력]
 - 나이대: {age}
 - 주제: {topic_clean if topic_clean else "(빈칸)"}
 - 제목: {title.strip()}
 - 이야기 유형: {story_type_name}
+- 현재 단계: {stage_label} (총 {total_count}단계 중 {stage_number}단계)
 - 이야기 카드 이름: {story_card_name}
-- 이야기 카드 설명: {story_card_prompt.strip()}
+- 이야기 카드 설명: {card_prompt_clean}
 """
 
 def build_image_prompt(
@@ -172,6 +218,8 @@ def build_image_prompt(
     topic: str | None,
     story_type_name: str,
     story_card_name: str | None = None,
+    stage_name: str | None = None,
+    style_override: dict | None = None,
 ) -> dict:
     """이야기와 스타일 정보를 바탕으로 이미지 생성 프롬프트를 구성."""
     if not API_KEY:
@@ -181,7 +229,16 @@ def build_image_prompt(
     if not styles:
         return {"error": "illust_styles.json에서 사용할 수 있는 스타일을 찾지 못했습니다."}
 
-    style_choice = random.choice(styles)
+    style_choice = None
+    if style_override:
+        name = (style_override.get("name") if isinstance(style_override, dict) else None) or ""
+        style_text_override = (style_override.get("style") if isinstance(style_override, dict) else None) or ""
+        if name and style_text_override:
+            style_choice = {"name": name, "style": style_text_override}
+
+    if style_choice is None:
+        style_choice = random.choice(styles)
+
     style_name = style_choice.get("name", "Unnamed Style")
     style_text = style_choice.get("style", "")
     style_fragments = [fragment.strip() for fragment in style_text.split(",") if fragment.strip()]
@@ -207,6 +264,7 @@ def build_image_prompt(
 - Topic: {topic_text}
 - Story Type: {story_type_name}
 - Narrative Card: {story_card_name or "(선택 안 됨)"}
+- Stage: {stage_name or "(단계 미지정)"}
 - Summary: {summary}
 
 [Style Reference]
@@ -287,11 +345,15 @@ def generate_story_with_gemini(
     *,
     title: str,
     story_type_name: str,
+    stage_name: str,
+    stage_index: int,
+    total_stages: int,
     story_card_name: str,
     story_card_prompt: str,
+    previous_sections: list[dict] | None = None,
 ) -> dict:
     """
-    Gemini로 동화를 생성해 {title, paragraphs[]} dict를 반환.
+    Gemini로 단계별 동화를 생성해 {title, paragraphs[]} dict를 반환.
     실패 시 {"error": "..."} 반환.
     """
     if not API_KEY:
@@ -302,8 +364,12 @@ def generate_story_with_gemini(
         topic=topic,
         title=title,
         story_type_name=story_type_name,
+        stage_name=stage_name,
+        stage_index=stage_index,
+        total_stages=total_stages,
         story_card_name=story_card_name,
         story_card_prompt=story_card_prompt,
+        previous_sections=previous_sections,
     )
     try:
         model = genai.GenerativeModel(_MODEL)
