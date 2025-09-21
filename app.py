@@ -1,5 +1,6 @@
 # app.py
 import base64
+import hashlib
 import html
 import json
 import os
@@ -125,6 +126,7 @@ def ensure_state():
     st.session_state.setdefault("story_card_choice", None)
     st.session_state.setdefault("story_export_path", None)
     st.session_state.setdefault("selected_export", None)
+    st.session_state.setdefault("story_export_signature", None)
     st.session_state.setdefault("is_generating_title", False)
     st.session_state.setdefault("is_generating_story", False)
     st.session_state.setdefault("story_style_choice", None)
@@ -152,6 +154,7 @@ def reset_story_session(*, keep_title: bool = False, keep_cards: bool = False):
         "story_image_style": None,
         "story_image_error": None,
         "story_export_path": None,
+        "story_export_signature": None,
         "story_title_error": None,
         "is_generating_story": False,
         "is_generating_title": False,
@@ -191,6 +194,7 @@ def reset_all_state():
         "selected_story_card_idx",
         "story_card_choice",
         "story_export_path",
+        "story_export_signature",
         "selected_export",
         "is_generating_title",
         "is_generating_story",
@@ -746,7 +750,7 @@ elif current_step == 4 and mode == "create":
 
     stage_name = STORY_PHASES[stage_idx]
     card_instruction = "엔딩" if stage_name == STORY_PHASES[-1] else "이야기"
-    st.subheader(f"4단계. {stage_idx + 1}단계 {stage_name}에 어울리는 {card_instruction} 카드를 골라보세요")
+    st.subheader(f"4단계. {stage_idx + 1} {stage_name}에 어울리는 {card_instruction} 카드를 골라보세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -899,7 +903,7 @@ elif current_step == 5 and mode == "create":
         st.stop()
 
     stage_name = STORY_PHASES[stage_idx]
-    st.subheader(f"4단계. {stage_idx + 1}단계 {stage_name} 이야기를 확인하세요")
+    st.subheader(f"4단계. {stage_idx + 1} {stage_name} 이야기를 확인하세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -1201,6 +1205,14 @@ elif current_step == 6 and mode == "create":
     export_ready_stages: list[dict] = []
     display_sections: list[dict] = []
     text_lines: list[str] = [title_val, ""]
+    signature_payload = {
+        "title": title_val,
+        "age": age_val,
+        "topic": topic_val or "",
+        "story_type": story_type_name,
+        "stages": [],
+        "cover_hash": None,
+    }
 
     for idx, stage_name in enumerate(STORY_PHASES):
         entry = stages_data[idx] if idx < len(stages_data) else None
@@ -1213,20 +1225,31 @@ elif current_step == 6 and mode == "create":
         text_lines.extend(paragraphs)
         text_lines.append("")
 
+        image_bytes = entry.get("image_bytes")
+        image_hash = hashlib.sha256(image_bytes).hexdigest() if image_bytes else None
+
         export_ready_stages.append(
             {
                 "stage_name": stage_name,
                 "card_name": card_info.get("name"),
                 "card_prompt": card_info.get("prompt"),
                 "paragraphs": paragraphs,
-                "image_bytes": entry.get("image_bytes"),
+                "image_bytes": image_bytes,
                 "image_mime": entry.get("image_mime"),
                 "image_style_name": (entry.get("image_style") or {}).get("name"),
             }
         )
+        signature_payload["stages"].append(
+            {
+                "stage_name": stage_name,
+                "card_name": card_info.get("name"),
+                "paragraphs": paragraphs,
+                "image_hash": image_hash,
+            }
+        )
         display_sections.append(
             {
-                "image_bytes": entry.get("image_bytes"),
+                "image_bytes": image_bytes,
                 "image_error": entry.get("image_error"),
                 "paragraphs": paragraphs,
             }
@@ -1235,14 +1258,22 @@ elif current_step == 6 and mode == "create":
     full_text = "\n".join(line for line in text_lines if line is not None)
 
     cover_payload = None
+    cover_hash = None
     if cover_image:
+        cover_mime = st.session_state.get("cover_image_mime", "image/png")
         cover_payload = {
             "image_bytes": cover_image,
-            "image_mime": st.session_state.get("cover_image_mime", "image/png"),
+            "image_mime": cover_mime,
             "style_name": (cover_style or {}).get("name"),
         }
+        cover_hash = hashlib.sha256(cover_image).hexdigest()
 
-    if st.button("HTML로 저장", use_container_width=True):
+    signature_payload["cover_hash"] = cover_hash
+    signature_raw = json.dumps(signature_payload, ensure_ascii=False, sort_keys=True)
+    signature = hashlib.sha256(signature_raw.encode("utf-8")).hexdigest()
+
+    auto_saved = False
+    if st.session_state.get("story_export_signature") != signature:
         try:
             export_path = export_story_to_html(
                 title=title_val,
@@ -1254,9 +1285,14 @@ elif current_step == 6 and mode == "create":
             )
             st.session_state["story_export_path"] = export_path
             st.session_state["selected_export"] = export_path
-            st.success(f"HTML 저장 완료: {export_path}")
+            st.session_state["story_export_signature"] = signature
+            auto_saved = True
         except Exception as exc:
-            st.error(f"HTML 저장 실패: {exc}")
+            st.error(f"HTML 자동 저장 실패: {exc}")
+
+    export_path_current = st.session_state.get("story_export_path")
+    if auto_saved and export_path_current:
+        st.success(f"HTML 자동 저장 완료: {export_path_current}")
 
     st.markdown(f"### {title_val}")
     if cover_image:
@@ -1267,6 +1303,8 @@ elif current_step == 6 and mode == "create":
     last_export = st.session_state.get("story_export_path")
     if last_export:
         st.caption(f"최근 저장 파일: {last_export}")
+    else:
+        st.caption("전체 이야기가 준비되면 자동으로 HTML로 저장돼요.")
 
     for idx, section in enumerate(display_sections):
         if section.get("missing"):
