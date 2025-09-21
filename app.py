@@ -1086,19 +1086,6 @@ elif current_step == 5 and mode == "create":
     for paragraph in story_data.get("paragraphs", []):
         st.write(paragraph)
 
-    stage_title_for_file = f"{title_val}_{stage_name}".replace(" ", "_")
-    st.download_button(
-        "이 단계 텍스트 다운로드",
-        data=(
-            story_data.get("title", title_val)
-            + "\n\n"
-            + "\n".join(story_data.get("paragraphs", []))
-        ),
-        file_name=f"{_slugify_filename(stage_title_for_file)}.txt",
-        mime="text/plain",
-        use_container_width=True,
-    )
-
     image_bytes = stage_entry.get("image_bytes") if stage_entry else st.session_state.get("story_image")
     image_error = stage_entry.get("image_error") if stage_entry else st.session_state.get("story_image_error")
 
@@ -1251,14 +1238,6 @@ elif current_step == 6 and mode == "create":
         st.image(cover_image, use_container_width=True)
     elif cover_error:
         st.caption("표지 일러스트를 준비하지 못했어요.")
-
-    st.download_button(
-        "전체 텍스트 다운로드",
-        data=full_text,
-        file_name=f"{_slugify_filename(title_val)}_full.txt",
-        mime="text/plain",
-        use_container_width=True,
-    )
 
     last_export = st.session_state.get("story_export_path")
     if last_export:
