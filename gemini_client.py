@@ -78,6 +78,24 @@ def _strip_json_code_fence(text: str) -> str:
     return cleaned
 
 
+def _extract_first_json_object(text: str) -> str | None:
+    """Best-effort extraction of the first top-level JSON object from arbitrary text."""
+    if not text:
+        return None
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for idx, char in enumerate(text[start:], start=start):
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:idx + 1]
+    return None
+
+
 def _load_illust_styles() -> list[dict]:
     """illust_styles.json에서 사용할 수 있는 스타일 목록을 반환."""
     global _ILLUST_STYLES_CACHE
@@ -384,7 +402,13 @@ def generate_story_with_gemini(
     try:
         data = json.loads(_strip_json_code_fence(text))
     except json.JSONDecodeError as exc:
-        return {"error": f"JSONDecodeError: {exc}"}
+        fallback_payload = _extract_first_json_object(text)
+        if fallback_payload is None:
+            return {"error": f"JSONDecodeError: {exc}"}
+        try:
+            data = json.loads(fallback_payload)
+        except json.JSONDecodeError as exc_inner:
+            return {"error": f"JSONDecodeError: {exc_inner}"}
 
     paragraphs = data.get("paragraphs") or []
     if not isinstance(paragraphs, list) or not paragraphs:

@@ -23,6 +23,7 @@ st.set_page_config(page_title="한 줄 동화 만들기", page_icon="📖", layo
 JSON_PATH = "storytype.json"
 STYLE_JSON_PATH = "illust_styles.json"
 STORY_JSON_PATH = "story.json"
+ENDING_JSON_PATH = "ending.json"
 ILLUST_DIR = "illust"
 HTML_EXPORT_DIR = "html_exports"
 HTML_EXPORT_PATH = Path(HTML_EXPORT_DIR)
@@ -68,6 +69,20 @@ def load_story_cards():
     return [card for card in cards if isinstance(card, dict)]
 
 
+@st.cache_data
+def load_ending_cards():
+    try:
+        with open(ENDING_JSON_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except FileNotFoundError:
+        return []
+    except json.JSONDecodeError:
+        return []
+
+    endings = raw.get("story_endings") or []
+    return [ending for ending in endings if isinstance(ending, dict)]
+
+
 story_types = load_story_types()
 if not story_types:
     st.error("storytype.json에서 story_types를 찾지 못했습니다.")
@@ -75,6 +90,7 @@ if not story_types:
 
 illust_styles = load_illust_styles()
 story_cards = load_story_cards()
+ending_cards = load_ending_cards()
 
 # ─────────────────────────────────────────────────────────────────────
 # 세션 상태: '없을 때만' 기본값. 절대 무조건 대입하지 않음.
@@ -729,7 +745,8 @@ elif current_step == 4 and mode == "create":
         st.stop()
 
     stage_name = STORY_PHASES[stage_idx]
-    st.subheader(f"4단계. {stage_idx + 1}단계 {stage_name}에 어울리는 이야기 카드를 골라보세요")
+    card_instruction = "엔딩" if stage_name == STORY_PHASES[-1] else "이야기"
+    st.subheader(f"4단계. {stage_idx + 1}단계 {stage_name}에 어울리는 {card_instruction} 카드를 골라보세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -740,8 +757,12 @@ elif current_step == 4 and mode == "create":
             st.stop()
         st.stop()
 
-    if not story_cards:
-        st.error("story.json에서 사용할 수 있는 이야기 카드를 찾지 못했습니다.")
+    is_final_stage = stage_name == STORY_PHASES[-1]
+    available_cards = ending_cards if is_final_stage else story_cards
+
+    if not available_cards:
+        missing_msg = "ending.json" if is_final_stage else "story.json"
+        st.error(f"{missing_msg}에서 사용할 수 있는 이야기 카드를 찾지 못했습니다.")
         if st.button("처음으로 돌아가기", use_container_width=True):
             reset_all_state()
             st.rerun()
@@ -770,6 +791,8 @@ elif current_step == 4 and mode == "create":
     guidance = STAGE_GUIDANCE.get(stage_name)
     if guidance:
         st.caption(guidance)
+    if is_final_stage:
+        st.caption("이 단계에서는 `ending.json`에 정의된 엔딩 카드를 사용해 결말의 분위기를 골라보세요.")
 
     style_choice = st.session_state.get("story_style_choice")
     if style_choice and style_choice.get("name"):
@@ -786,15 +809,16 @@ elif current_step == 4 and mode == "create":
 
     cards = st.session_state.get("story_cards_rand4")
     if not cards:
-        sample_size = min(4, len(story_cards))
+        sample_size = min(4, len(available_cards))
         if sample_size <= 0:
-            st.error("이야기 카드가 부족합니다. story.json을 확인해주세요.")
+            source_label = "ending.json" if is_final_stage else "story.json"
+            st.error(f"카드가 부족합니다. {source_label}을 확인해주세요.")
             if st.button("처음으로 돌아가기", use_container_width=True):
                 reset_all_state()
                 st.rerun()
                 st.stop()
             st.stop()
-        st.session_state["story_cards_rand4"] = random.sample(story_cards, k=sample_size)
+        st.session_state["story_cards_rand4"] = random.sample(available_cards, k=sample_size)
         st.session_state["selected_story_card_idx"] = 0
         cards = st.session_state["story_cards_rand4"]
 
@@ -826,7 +850,8 @@ elif current_step == 4 and mode == "create":
         selected_card = cards[selected_idx]
 
     card_prompt = (selected_card.get("prompt") or "").strip()
-    st.success(f"선택된 이야기 카드: **{selected_card.get('name', '이야기 카드')}**")
+    card_label = "엔딩 카드" if is_final_stage else "이야기 카드"
+    st.success(f"선택된 {card_label}: **{selected_card.get('name', card_label)}**")
     if card_prompt:
         st.caption(card_prompt)
 
