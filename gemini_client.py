@@ -278,10 +278,7 @@ def build_image_prompt(
     summary = " ".join(paragraphs)
     summary = summary[:1500]
 
-    directive = f"""당신은 어린이 그림책 삽화의 아트 디렉터이자 텍스트-투-이미지 프롬프트 엔지니어입니다.  
-주어진 동화 줄거리와 스타일 레퍼런스를 분석하여 **한 장의 삽화**를 묘사하는 영어 프롬프트를 작성하세요.  
-어린이 독자가 새로운 감정을 경험할 수 있도록, 스타일 고유의 분위기를 있는 그대로 살려 주세요.  
-
+    directive = f"""당신은 어린이 그림책 삽화의 아트 디렉터이자 텍스트-투-이미지 프롬프트 엔지니어입니다.  주어진 동화 줄거리와 스타일 레퍼런스를 분석하여 **한 장의 삽화**를 묘사하는 영어 프롬프트를 작성하세요.  어린이 독자가 새로운 감정을 경험할 수 있도록, 스타일 고유의 분위기를 있는 그대로 살려 주세요.  
 [Story]
 - Title: {title or "(무제)"}
 - Age Group: {age}
@@ -305,30 +302,38 @@ def build_image_prompt(
 - 생성 프롬프트에 "without text, typography, signature, or watermark"를 포함해 어떠한 글자/로고/싸인도 나오지 않도록 합니다.
 """
 
-    try:
-        model = genai.GenerativeModel(_MODEL)
-        resp = model.generate_content(directive)
-    except Exception as exc:
-        return {"error": f"{type(exc).__name__}: {exc}"}
+    last_error: dict | None = None
+    for attempt in range(1, 4):
+        try:
+            model = genai.GenerativeModel(_MODEL)
+            resp = model.generate_content(directive)
+        except Exception as exc:
+            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
+            continue
 
-    prompt_text = _extract_text_from_response(resp)
-    final_prompt = (prompt_text or "").strip()
-    if not final_prompt:
-        return {"error": "이미지 프롬프트 생성이 실패했습니다."}
+        prompt_text = _extract_text_from_response(resp)
+        final_prompt = (prompt_text or "").strip()
+        if not final_prompt:
+            last_error = {"error": "이미지 프롬프트 생성이 실패했습니다.", "attempt": attempt}
+            continue
 
-    if final_prompt.startswith("```"):
-        cleaned = final_prompt.strip("`")
-        cleaned_lines = [ln for ln in cleaned.splitlines() if not ln.strip().lower().startswith("prompt")]
-        final_prompt = " ".join(line.strip() for line in cleaned_lines if line.strip()).strip()
+        if final_prompt.startswith("```"):
+            cleaned = final_prompt.strip("`")
+            cleaned_lines = [ln for ln in cleaned.splitlines() if not ln.strip().lower().startswith("prompt")]
+            final_prompt = " ".join(line.strip() for line in cleaned_lines if line.strip()).strip()
 
-    final_prompt = " ".join(final_prompt.split())
+        final_prompt = " ".join(final_prompt.split())
 
-    return {
-        "prompt": final_prompt,
-        "style_name": style_name,
-        "style_text": style_text,
-    }
+        return {
+            "prompt": final_prompt,
+            "style_name": style_name,
+            "style_text": style_text,
+        }
 
+    if last_error is None:
+        last_error = {"error": "이미지 프롬프트 생성이 실패했습니다."}
+    last_error.setdefault("attempts", 3)
+    return last_error
 
 def generate_title_with_gemini(
     age: str,
@@ -341,27 +346,38 @@ def generate_title_with_gemini(
         return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
 
     prompt = _build_title_prompt(age, topic, story_type_name, story_type_prompt)
-    try:
-        model = genai.GenerativeModel(_MODEL)
-        resp = model.generate_content(prompt)
-    except Exception as exc:
-        return {"error": f"{type(exc).__name__}: {exc}"}
+    last_error: dict | None = None
 
-    text = _extract_text_from_response(resp)
-    if not text:
-        return {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)"}
+    for attempt in range(1, 4):
+        try:
+            model = genai.GenerativeModel(_MODEL)
+            resp = model.generate_content(prompt)
+        except Exception as exc:
+            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
+            continue
 
-    try:
-        payload = json.loads(_strip_json_code_fence(text))
-    except json.JSONDecodeError as exc:
-        return {"error": f"JSONDecodeError: {exc}"}
+        text = _extract_text_from_response(resp)
+        if not text:
+            last_error = {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)", "attempt": attempt}
+            continue
 
-    title = (payload.get("title") or "").strip()
-    if not title:
-        return {"error": "제목을 찾지 못했습니다.", "raw": payload}
+        try:
+            payload = json.loads(_strip_json_code_fence(text))
+        except json.JSONDecodeError as exc:
+            last_error = {"error": f"JSONDecodeError: {exc}", "attempt": attempt}
+            continue
 
-    return {"title": title}
+        title = (payload.get("title") or "").strip()
+        if not title:
+            last_error = {"error": "제목을 찾지 못했습니다.", "raw": payload, "attempt": attempt}
+            continue
 
+        return {"title": title}
+
+    if last_error is None:
+        last_error = {"error": "제목 생성에 실패했습니다."}
+    last_error.setdefault("attempts", 3)
+    return last_error
 
 def generate_story_with_gemini(
     age: str,
@@ -395,38 +411,51 @@ def generate_story_with_gemini(
         story_card_prompt=story_card_prompt,
         previous_sections=previous_sections,
     )
-    try:
-        model = genai.GenerativeModel(_MODEL)
-        resp = model.generate_content(prompt)
-    except Exception as exc:
-        return {"error": f"{type(exc).__name__}: {exc}"}
+    last_error: dict | None = None
 
-    text = _extract_text_from_response(resp)
-    if not text:
-        return {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)"}
-
-    try:
-        data = json.loads(_strip_json_code_fence(text))
-    except json.JSONDecodeError as exc:
-        fallback_payload = _extract_first_json_object(text)
-        if fallback_payload is None:
-            return {"error": f"JSONDecodeError: {exc}"}
+    for attempt in range(1, 4):
         try:
-            data = json.loads(fallback_payload)
-        except json.JSONDecodeError as exc_inner:
-            return {"error": f"JSONDecodeError: {exc_inner}"}
+            model = genai.GenerativeModel(_MODEL)
+            resp = model.generate_content(prompt)
+        except Exception as exc:
+            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
+            continue
 
-    paragraphs = data.get("paragraphs") or []
-    if not isinstance(paragraphs, list) or not paragraphs:
-        return {"error": "반환 JSON 형식이 예상과 다릅니다.", "raw": data}
+        text = _extract_text_from_response(resp)
+        if not text:
+            last_error = {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)", "attempt": attempt}
+            continue
 
-    title_value = (data.get("title") or title or "").strip() or title
-    cleaned_paragraphs = [str(p).strip() for p in paragraphs if str(p).strip()]
-    if not cleaned_paragraphs:
-        return {"error": "본문 단락을 찾지 못했습니다.", "raw": data}
+        try:
+            data = json.loads(_strip_json_code_fence(text))
+        except json.JSONDecodeError as exc:
+            fallback_payload = _extract_first_json_object(text)
+            if fallback_payload is None:
+                last_error = {"error": f"JSONDecodeError: {exc}", "attempt": attempt}
+                continue
+            try:
+                data = json.loads(fallback_payload)
+            except json.JSONDecodeError as exc_inner:
+                last_error = {"error": f"JSONDecodeError: {exc_inner}", "attempt": attempt}
+                continue
 
-    return {"title": title_value, "paragraphs": cleaned_paragraphs}
+        paragraphs = data.get("paragraphs") or []
+        if not isinstance(paragraphs, list) or not paragraphs:
+            last_error = {"error": "반환 JSON 형식이 예상과 다릅니다.", "raw": data, "attempt": attempt}
+            continue
 
+        title_value = (data.get("title") or title or "").strip() or title
+        cleaned_paragraphs = [str(p).strip() for p in paragraphs if str(p).strip()]
+        if not cleaned_paragraphs:
+            last_error = {"error": "본문 단락을 찾지 못했습니다.", "raw": data, "attempt": attempt}
+            continue
+
+        return {"title": title_value, "paragraphs": cleaned_paragraphs}
+
+    if last_error is None:
+        last_error = {"error": "동화 생성에 실패했습니다."}
+    last_error.setdefault("attempts", 3)
+    return last_error
 
 def _coerce_bytes(value):
     """다양한 SDK 응답 형식을 안전하게 bytes로 변환."""
@@ -523,57 +552,69 @@ def generate_image_with_gemini(prompt: str) -> dict:
     if not API_KEY:
         return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
 
-    model = None
-    model_name = None
-    init_errors = []
+    last_error: dict | None = None
 
-    for candidate in _iter_image_models():
-        try:
-            model = _instantiate_image_model(candidate)
-            model_name = candidate
-            break
-        except Exception as exc:
-            init_errors.append((candidate, exc))
+    for attempt in range(1, 4):
+        model = None
+        model_name = None
+        init_errors = []
 
-    if model is None:
-        detail = "; ".join(
-            f"{name}: {type(exc).__name__} — {exc}" for name, exc in init_errors
-        )
-        if not detail:
-            detail = "모델 후보를 찾지 못했습니다."
-        return {"error": f"이미지 모델 초기화 실패 — {detail}"}
-
-    response = None
-    last_exc = None
-
-    generate_images = getattr(model, "generate_images", None)
-    if callable(generate_images):
-        try:
-            response = generate_images(prompt=prompt)
-        except Exception as exc:
-            last_exc = exc
-
-    if response is None:
-        generate_content = getattr(model, "generate_content", None)
-        if callable(generate_content):
+        for candidate in _iter_image_models():
             try:
-                response = generate_content(prompt)
-                last_exc = None
+                model = _instantiate_image_model(candidate)
+                model_name = candidate
+                break
+            except Exception as exc:
+                init_errors.append((candidate, exc))
+
+        if model is None:
+            detail = "; ".join(
+                f"{name}: {type(exc).__name__} — {exc}" for name, exc in init_errors
+            )
+            if not detail:
+                detail = "모델 후보를 찾지 못했습니다."
+            last_error = {"error": f"이미지 모델 초기화 실패 — {detail}", "attempt": attempt}
+            continue
+
+        response = None
+        last_exc = None
+
+        generate_images = getattr(model, "generate_images", None)
+        if callable(generate_images):
+            try:
+                response = generate_images(prompt=prompt)
             except Exception as exc:
                 last_exc = exc
 
-    if response is None:
-        if last_exc is None:
-            return {"error": "이미지 응답을 생성하지 못했습니다."}
-        detail = f"{type(last_exc).__name__}: {last_exc}"
-        if "NotFound" in detail or "404" in detail:
-            detail += " — 사용 가능한 이미지 모델 이름을 ListModels로 확인하거나 GEMINI_IMAGE_MODEL 환경 변수를 설정해 주세요."
-        if model_name:
-            detail = f"[{model_name}] {detail}"
-        return {"error": detail}
+        if response is None:
+            generate_content = getattr(model, "generate_content", None)
+            if callable(generate_content):
+                try:
+                    response = generate_content(prompt)
+                    last_exc = None
+                except Exception as exc:
+                    last_exc = exc
 
-    image_bytes, mime_type = _extract_image_from_response(response)
-    if not image_bytes:
-        return {"error": "모델이 이미지 데이터를 반환하지 않았습니다."}
+        if response is None:
+            if last_exc is None:
+                last_error = {"error": "이미지 응답을 생성하지 못했습니다.", "attempt": attempt}
+            else:
+                detail = f"{type(last_exc).__name__}: {last_exc}"
+                if "NotFound" in detail or "404" in detail:
+                    detail += " — 사용 가능한 이미지 모델 이름을 ListModels로 확인하거나 GEMINI_IMAGE_MODEL 환경 변수를 설정해 주세요."
+                if model_name:
+                    detail = f"[{model_name}] {detail}"
+                last_error = {"error": detail, "attempt": attempt}
+            continue
 
-    return {"bytes": image_bytes, "mime_type": mime_type or "image/png"}
+        image_bytes, mime_type = _extract_image_from_response(response)
+        if not image_bytes:
+            last_error = {"error": "모델이 이미지 데이터를 반환하지 않았습니다.", "attempt": attempt}
+            continue
+
+        return {"bytes": image_bytes, "mime_type": mime_type or "image/png"}
+
+    if last_error is None:
+        last_error = {"error": "이미지 생성에 실패했습니다."}
+    last_error.setdefault("attempts", 3)
+    return last_error
