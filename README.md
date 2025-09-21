@@ -1,12 +1,12 @@
 # Fairybook
 
-Fairybook is a Streamlit application that helps educators and parents craft short Korean children's stories and AI-generated illustrations powered by Google Gemini. The app guides the user through a four-step flow, picks a matching illustration style, and can export the final story as HTML for easy sharing.
+Fairybook is a Streamlit application that helps educators and parents craft short Korean children's stories and AI-generated illustrations powered by Google Gemini. The app now guides users through a six-step flow that locks in a single illustration style after the title stage, previews the cover art, and exports the finished story as a lightweight HTML bundle.
 
 ## Core Features
 - Guided story creation: choose an age band, provide a one-line idea, and pick from randomized story archetypes.
 - Gemini-backed storytelling: prompts the Gemini text model for multi-paragraph narratives tailored to the selected age and topic.
-- Illustration generation: derives an English art prompt from the story plus an illustration style catalog, then calls the Gemini image model.
-- One-click exports: download the story text or bundle text and artwork into timestamped HTML files stored under `html_exports/`.
+- Consistent illustration style: the first title pass generates a cover image and locks its art style for every later stage.
+- HTML exports: bundle the title, cover, stage illustrations, and prose into timestamped HTML files stored under `html_exports/`.
 - Saved story browser: revisit previous exports inside the app without leaving Streamlit.
 
 ## Getting Started
@@ -43,10 +43,11 @@ streamlit run app.py --server.headless true
 
 The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the story flow:
 1. Pick an age group and describe the idea or theme.
-2. Choose one of eight randomized story types to generate an on-theme title.
-3. Pick one of four narrative cards drawn from `story.json` to steer the plot.
-4. Wait while Gemini writes the story and illustration; review the results and export as text or HTML.
-5. Use **저장된 동화 보기** to browse previously exported HTML files located in `html_exports/`.
+2. Choose one of eight randomized story types and generate a title with Gemini.
+3. Review the generated title and cover illustration, then continue when satisfied.
+4. Pick one of four narrative cards drawn from `story.json` to steer each stage of the plot.
+5. Let Gemini write the current stage and create its illustration; repeat until all five stages are complete.
+6. Open **전체 이야기를 모아봤어요** to review the full sequence and export a single HTML file. Use **📂 저장본 보기** any time to browse previously exported stories under `html_exports/`.
 
 ## Repository Tour
 - `app.py` – Streamlit UI and session-state management for the multi-step workflow.
@@ -61,7 +62,7 @@ The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the
 - Follow PEP 8, keep Streamlit widget keys stable, and prefer helper functions for repeated logic.
 - When adding dependencies, pin them in `requirements.txt` and capture the change with `pip freeze` before committing.
 - Tests are ad hoc today; add `pytest` suites under `test_*.py` and mock `google.generativeai` to avoid hitting external APIs.
-- Manual verification: launch the app, walk through all four creation steps, exercise illustration downloads, and reload saved HTML exports to confirm rendering.
+- Manual verification: launch the app, walk through all six creation steps (including the cover preview), ensure each stage inherits the locked illustration style, and reload saved HTML exports to confirm rendering.
 
 ## Troubleshooting
 - **Missing story types or styles**: ensure `storytype.json` and `illust_styles.json` remain in the project root and are valid UTF-8 JSON.

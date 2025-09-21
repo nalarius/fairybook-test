@@ -12,18 +12,19 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 2. On Step 0 select **✏️ 동화 만들기**.
 3. Step 1: Provide an idea, try each age band, and confirm the form advances.
 4. Step 2: Verify eight story-type cards load with the expected thumbnails and that clicking **제목 만들기** produces a title.
-5. Step 3: Ensure four narrative cards appear, switch between them, and trigger **이야기 만들기**.
-6. Step 4: Confirm the loading spinner appears, the story and illustration render, and downloads work.
-7. Generate at least two stories covering 다른 이야기 톤 (예: 하나는 밝고 희망적인 방향, 다른 하나는 서늘하거나 비극적인 방향)으로 각각 다른 type/card 조합을 사용하고, 두 결과를 비교해 톤이 다양하게 반영됐는지 확인한다. 각 결과의 일반 텍스트 내보내기를 다운로드해 정상적으로 열리는지도 점검한다.
+5. Step 3: Confirm the cover illustration appears, the style name is recorded, and **계속해서 이야기 만들기** moves you forward without regenerating the style.
+6. Step 4: Ensure four narrative cards appear, switch between them, and trigger **이 단계 이야기 만들기**.
+7. Step 5: Check that the loading spinner appears, the story paragraphs render alongside the stage illustration, and no download buttons are present.
+8. Generate at least two stories covering 다른 이야기 톤 (예: 하나는 밝고 희망적인 방향, 다른 하나는 서늘하거나 비극적인 방향)으로 각각 다른 type/card 조합을 사용하고, 두 결과를 비교해 톤이 다양하게 반영됐는지 확인한다.
 
 ## Illustration Checks
-- Ensure an illustration displays for at least one story (retry if quota or safety blocks trigger).
-- If the image fails, expand **이미지 프롬프트 보기** and confirm the prompt text exists for debugging.
-- Download the HTML export and confirm the embedded image renders in a browser.
+- Ensure the cover illustration renders and that later stages reuse the same style.
+- If a stage image fails, note the surfaced error and confirm you can retry without losing prior stages.
+- Save an HTML export from the recap step and confirm every embedded image renders in a browser.
 
 ## Saved Story Review
-1. Return to Step 0 and choose **📂 저장본 보기** (only available after an export exists).
-2. Select the latest HTML file and verify the preview and download actions work.
+1. Return to Step 0 and choose **📂 저장본 보기** (available after an export exists).
+2. Select the latest HTML file and verify the preview works.
 3. Use navigation buttons to return to earlier steps and confirm session state resets without errors.
 
 ## Regression Smoke Tests
