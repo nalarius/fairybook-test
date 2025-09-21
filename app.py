@@ -1174,6 +1174,8 @@ elif current_step == 5 and mode == "create":
                     story_card_name=card_name,
                     stage_name=stage_name,
                     style_override=style_choice,
+                    use_reference_image=st.session_state.get("character_image") is not None,
+                    protagonist_text=st.session_state.get("protagonist_result"),
                 )
 
                 if "error" in prompt_data:
@@ -1191,7 +1193,10 @@ elif current_step == 5 and mode == "create":
                     st.session_state["story_image_style"] = style_info
                     st.session_state["story_style_choice"] = style_info
 
-                    image_response = generate_image_with_gemini(prompt_data["prompt"])
+                    image_response = generate_image_with_gemini(
+                        prompt_data["prompt"],
+                        image_input=st.session_state.get("character_image"),
+                    )
                     if "error" in image_response:
                         st.session_state["story_image_error"] = image_response["error"]
                         st.session_state["story_image"] = None

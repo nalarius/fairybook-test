@@ -326,6 +326,7 @@ def build_image_prompt(
     style_override: dict | None = None,
     is_character_sheet: bool = False,
     use_reference_image: bool = False,
+    protagonist_text: str | None = None,
 ) -> dict:
     """이야기와 스타일 정보를 바탕으로 이미지 생성 프롬프트를 구성."""
     if not API_KEY:
@@ -371,7 +372,9 @@ def build_image_prompt(
 
     reference_image_directive = ""
     if use_reference_image:
-        reference_image_directive = "\n- The provided image is a character reference sheet. Use it to accurately depict the protagonist's appearance, clothing, and style."
+        reference_image_directive = "\n- **Crucially, the protagonist described below MUST strictly match the provided character reference image.** Depict the character as shown in the reference image, but place them within the context of the new scene described in the summary."
+
+    protagonist_block = f"\n- Protagonist Description: {protagonist_text}" if protagonist_text else ""
 
     directive = f"""You are an art director and text-to-image prompt engineer for a children's picture book. Analyze the given story plot and style references to write a prompt for generating **a single illustration** in English. Faithfully capture the unique mood of the style to allow young readers to experience new emotions.
 
@@ -382,7 +385,7 @@ def build_image_prompt(
 - Story Type: {story_type_name}
 - Narrative Card: {story_card_name or "(Not selected)"}
 - Stage: {stage_name or "(Not specified)"}
-- Summary: {summary}
+- Summary: {summary}{protagonist_block}
 
 [Style Reference]
 - Illustrator: {style_name}
