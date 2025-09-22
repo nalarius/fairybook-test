@@ -1240,7 +1240,7 @@ elif current_step == 5 and mode == "create":
                     story_card_name=card_name,
                     stage_name=stage_name,
                     style_override=style_choice,
-                    use_reference_image=st.session_state.get("character_image") is not None,
+                    use_reference_image=False,
                     protagonist_text=st.session_state.get("protagonist_result"),
                 )
 

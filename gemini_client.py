@@ -381,7 +381,10 @@ def build_image_prompt(
 
     reference_image_directive = ""
     if use_reference_image:
-        reference_image_directive = "\n- **Crucially, the protagonist described below MUST strictly match the provided character reference image.** Depict the character as shown in the reference image, but place them within the context of the new scene described in the summary."
+        reference_image_directive = (
+            "\n- **The provided reference image depicts the story's protagonist. Center the cover around this exact character.**"
+            "\n- **Crucially, the protagonist described below MUST strictly match the provided character reference image.** Depict the character as shown in the reference image, adapting their pose, wardrobe, and features faithfully while placing them in the new scene described in the summary."
+        )
 
     protagonist_block = f"\n- Protagonist Description: {protagonist_text}" if protagonist_text else ""
 
