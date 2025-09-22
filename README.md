@@ -50,6 +50,16 @@ The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the
 5. Let Gemini write the current stage with continuity context and create its illustration (optionally guided by the character art as an image reference); repeat until all five stages are complete.
 6. Open **전체 이야기를 모아봤어요** to review the full sequence. The app auto-saves an HTML bundle under `html_exports/` and surfaces the latest file path. Use **📂 저장본 보기** any time to browse previously exported stories.
 
+## Run Tests
+Install the development dependency and execute the suite from the project root:
+
+```bash
+pip install pytest
+python -m pytest
+```
+
+The tests live under `tests/` and mock `google.generativeai.GenerativeModel`, so they run offline without consuming Gemini quota.
+
 ## Repository Tour
 - `app.py` – Streamlit UI and session-state management for the multi-step workflow, including the automated synopsis → protagonist → character art → title seeding loop.
 - `gemini_client.py` – Gemini integration, including story prompt composition, synopsis/protagonist prompt builders, illustration prompt generation, and image model fallbacks.
@@ -62,7 +72,7 @@ The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the
 ## Development Notes
 - Follow PEP 8, keep Streamlit widget keys stable, and prefer helper functions for repeated logic.
 - When adding dependencies, pin them in `requirements.txt` and capture the change with `pip freeze` before committing.
-- Tests are ad hoc today; add `pytest` suites under `test_*.py` and mock `google.generativeai` to avoid hitting external APIs.
+- Automated coverage currently focuses on `gemini_client.py`; extend the `pytest` suites under `tests/` and continue mocking `google.generativeai` interactions to avoid hitting external APIs.
 - Manual verification: launch the app, walk through all six creation steps (including the cover preview), ensure each stage inherits the locked illustration style, and reload saved HTML exports to confirm rendering.
 
 ## Troubleshooting

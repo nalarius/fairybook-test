@@ -4,6 +4,7 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 
 ## Setup
 - Activate the virtual environment and install dependencies (`pip install -r requirements.txt`).
+- Install the dev dependency (`pip install pytest`) and verify the automated suite passes (`python -m pytest`).
 - Populate `.env` with a valid `GEMINI_API_KEY`; restart Streamlit after edits.
 - (Optional) Clear `html_exports/` to simulate a first-run experience.
 

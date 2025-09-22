@@ -53,7 +53,7 @@ All JSON files are UTF-8 encoded and loaded lazily so Streamlit reruns stay resp
 - **New archetypes or styles**: append entries to the respective JSON files and add matching thumbnails under `illust/` (512×512 PNG recommended).
 - **Prompt tuning**: adjust the synopsis/protagonist builders and character art prompt templates in `gemini_client.py` to rebalance tone or introduce new guidance without touching the Streamlit layer.
 - **Alternative models**: update `_MODEL` or `_IMAGE_MODEL` constants, and keep fallbacks in sync with available endpoints.
-- **Testing**: introduce `pytest` suites that mock `google.generativeai.GenerativeModel` and `ImageGenerationModel` to simulate responses without consuming quota.
+- **Testing**: the `tests/test_gemini_client.py` suite exercises prompt builders, JSON parsing helpers, and Gemini orchestration by mocking `google.generativeai.GenerativeModel`. Expand coverage for additional modules while keeping network calls stubbed to preserve quota.
 - **Deployment**: ensure `.env` is managed securely (Streamlit Cloud secrets, environment variables, etc.) and write-protect `html_exports/` as needed for multi-user environments.
 
 ## Manual Verification Checklist
