@@ -170,6 +170,52 @@ def ensure_state():
 
 ensure_state()
 
+
+def render_app_styles(home_bg: str | None, *, show_home_hero: bool = False) -> None:
+    """Apply global background styling and optionally render the home hero image."""
+    base_css = """
+    <style>
+    .stApp {
+        background: linear-gradient(180deg, #f6f2ff 0%, #fff8f2 68%, #ffffff 100%);
+    }
+    [data-testid="stHeader"] {
+        background: rgba(0, 0, 0, 0);
+    }
+    [data-testid="stAppViewContainer"] > .main > div:first-child {
+        background-color: rgba(255, 255, 255, 0.9);
+        border-radius: 20px;
+        padding: 1.75rem 2rem;
+        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
+        backdrop-filter: blur(1.5px);
+        max-width: 780px;
+    }
+    [data-testid="stAppViewContainer"] > .main > div:first-child h1 {
+        margin-bottom: 0.2rem;
+    }
+    .home-hero {
+        width: 100%;
+        height: 570px;
+        margin: 0.18rem 0 0.5rem;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: contain;
+    }
+    @media (max-width: 640px) {
+        .home-hero {
+            height: 360px;
+            margin: 0.15rem 0 0.45rem;
+        }
+    }
+    </style>
+    """
+    st.markdown(base_css, unsafe_allow_html=True)
+
+    if show_home_hero and home_bg:
+        st.markdown(
+            f"<div class=\"home-hero\" style=\"background-image: url('data:image/png;base64,{home_bg}');\"></div>",
+            unsafe_allow_html=True,
+        )
+
 def go_step(n: int):
     st.session_state["step"] = n
     if n in (1, 2, 3, 4, 5, 6):
@@ -560,51 +606,10 @@ else:
 # ─────────────────────────────────────────────────────────────────────
 # STEP 1 — 나이대/주제 입력 (form으로 커밋 시점 고정, 확정 키와 분리)
 # ─────────────────────────────────────────────────────────────────────
+home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
+render_app_styles(home_bg, show_home_hero=current_step == 0)
+
 if current_step == 0:
-    home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
-    if home_bg:
-        st.markdown(
-            f"""
-            <style>
-            .stApp {{
-                background: linear-gradient(180deg, #f6f2ff 0%, #fff8f2 68%, #ffffff 100%);
-            }}
-            [data-testid="stHeader"] {{
-                background: rgba(0, 0, 0, 0);
-            }}
-            [data-testid="stAppViewContainer"] > .main > div:first-child {{
-                background-color: rgba(255, 255, 255, 0.9);
-                border-radius: 20px;
-                padding: 1.75rem 2rem;
-                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
-                backdrop-filter: blur(1.5px);
-                max-width: 780px;
-            }}
-            [data-testid="stAppViewContainer"] > .main > div:first-child h1 {{
-                margin-bottom: 0.2rem;
-            }}
-            .home-hero {{
-                width: 100%;
-                height: 570px;
-                margin: 0.18rem 0 0.5rem;
-                background-position: center;
-                background-repeat: no-repeat;
-                background-size: contain;
-            }}
-            @media (max-width: 640px) {{
-                .home-hero {{
-                    height: 360px;
-                    margin: 0.15rem 0 0.45rem;
-                }}
-            }}
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"<div class=\"home-hero\" style=\"background-image: url('data:image/png;base64,{home_bg}');\"></div>",
-            unsafe_allow_html=True,
-        )
     st.subheader("어떤 작업을 하시겠어요?")
     exports_available = bool(list_html_exports())
 
