@@ -903,7 +903,7 @@ elif current_step == 3:
         st.warning(f"표지 일러스트 생성 실패: {cover_error}")
     else:
         st.info("표지 일러스트가 아직 준비되지 않았어요. 제목을 다시 생성해 보세요.")
-
+    
     st.markdown("---")
     st.markdown("#### 간단한 시놉시스")
     if synopsis_text:
@@ -930,7 +930,7 @@ elif current_step == 3:
         st.warning(f"설정화 생성 실패: {character_error}")
     else:
         st.info("설정화가 아직 없습니다. 2단계에서 스타일을 선택하고 생성해 주세요.")
-
+    
     c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("← 제목 다시 만들기", use_container_width=True):
@@ -964,7 +964,7 @@ elif current_step == 4 and mode == "create":
 
     stage_name = STORY_PHASES[stage_idx]
     card_instruction = "엔딩" if stage_name == STORY_PHASES[-1] else "이야기"
-    st.subheader(f"4단계. {stage_idx + 1} {stage_name}에 어울리는 {card_instruction} 카드를 골라보세요")
+    st.subheader(f"4단계. {stage_name}에 어울리는 {card_instruction} 카드를 골라보세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
@@ -1010,7 +1010,7 @@ elif current_step == 4 and mode == "create":
     if guidance:
         st.caption(guidance)
     if is_final_stage:
-        st.caption("이 단계에서는 `ending.json`에 정의된 엔딩 카드를 사용해 결말의 분위기를 골라보세요.")
+        st.caption("엔딩 카드를 사용해 결말의 분위기를 골라보세요.")
 
     style_choice = st.session_state.get("story_style_choice")
     if style_choice and style_choice.get("name"):
@@ -1117,7 +1117,7 @@ elif current_step == 5 and mode == "create":
         st.stop()
 
     stage_name = STORY_PHASES[stage_idx]
-    st.subheader(f"4단계. {stage_idx + 1} {stage_name} 이야기를 확인하세요")
+    st.subheader(f"4단계. {stage_name} 이야기를 확인하세요")
 
     title_val = st.session_state.get("story_title")
     if not title_val:
