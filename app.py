@@ -567,24 +567,42 @@ if current_step == 0:
             f"""
             <style>
             .stApp {{
-                background-image: url("data:image/png;base64,{home_bg}");
-                background-size: cover;
-                background-position: center;
-                background-repeat: no-repeat;
-                background-attachment: fixed;
+                background: linear-gradient(180deg, #f6f2ff 0%, #fff8f2 68%, #ffffff 100%);
             }}
             [data-testid="stHeader"] {{
                 background: rgba(0, 0, 0, 0);
             }}
             [data-testid="stAppViewContainer"] > .main > div:first-child {{
-                background-color: rgba(255, 255, 255, 0.86);
-                border-radius: 24px;
-                padding: 2.5rem 2.25rem;
-                box-shadow: 0 22px 48px rgba(0, 0, 0, 0.16);
-                backdrop-filter: blur(2px);
+                background-color: rgba(255, 255, 255, 0.9);
+                border-radius: 20px;
+                padding: 1.75rem 2rem;
+                box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
+                backdrop-filter: blur(1.5px);
+                max-width: 780px;
+            }}
+            [data-testid="stAppViewContainer"] > .main > div:first-child h1 {{
+                margin-bottom: 0.2rem;
+            }}
+            .home-hero {{
+                width: 100%;
+                height: 570px;
+                margin: 0.18rem 0 0.5rem;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-size: contain;
+            }}
+            @media (max-width: 640px) {{
+                .home-hero {{
+                    height: 360px;
+                    margin: 0.15rem 0 0.45rem;
+                }}
             }}
             </style>
             """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<div class=\"home-hero\" style=\"background-image: url('data:image/png;base64,{home_bg}');\"></div>",
             unsafe_allow_html=True,
         )
     st.subheader("어떤 작업을 하시겠어요?")
