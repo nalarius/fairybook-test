@@ -44,48 +44,101 @@ STAGE_GUIDANCE = {
 
 HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
+
+def _load_json_entries_from_file(path: str | Path, key: str) -> list[dict]:
+    """Safely load a list of dict entries from a JSON file."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+    items = payload.get(key)
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict)]
+
+
+_STATE_SIMPLE_DEFAULTS: dict[str, object] = {
+    # Flow & selection state
+    "step": 0,
+    "mode": None,
+    "age": None,
+    "topic": None,
+    "current_stage_idx": 0,
+    "selected_type_idx": 0,
+    "selected_story_card_idx": 0,
+    "selected_style_id": None,
+
+    # Form seed values
+    "age_input": "6-8",
+    "topic_input": "",
+
+    # Story generation artefacts
+    "story_error": None,
+    "story_result": None,
+    "story_prompt": None,
+    "story_image": None,
+    "story_image_mime": "image/png",
+    "story_image_style": None,
+    "story_image_error": None,
+    "story_cards_rand4": None,
+    "story_card_choice": None,
+    "story_export_path": None,
+    "selected_export": None,
+    "story_export_signature": None,
+    "story_style_choice": None,
+
+    # Async flags
+    "is_generating_synopsis": False,
+    "is_generating_protagonist": False,
+    "is_generating_character_image": False,
+    "is_generating_title": False,
+    "is_generating_story": False,
+    "is_generating_all": False,  # 통합 생성 플래그
+
+    # Synopsis & protagonist artefacts
+    "synopsis_result": None,
+    "synopsis_hooks": None,
+    "synopsis_error": None,
+    "protagonist_result": None,
+    "protagonist_error": None,
+
+    # Character art
+    "character_prompt": None,
+    "character_image": None,
+    "character_image_mime": "image/png",
+    "character_image_error": None,
+
+    # Story output & title
+    "story_title": None,
+    "story_title_error": None,
+
+    # Cover artefacts
+    "cover_image": None,
+    "cover_image_mime": "image/png",
+    "cover_image_style": None,
+    "cover_image_error": None,
+    "cover_prompt": None,
+}
+
 @st.cache_data
 def load_story_types():
-    with open(JSON_PATH, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-    return raw.get("story_types", [])
+    return _load_json_entries_from_file(JSON_PATH, "story_types")
 
 @st.cache_data
 def load_illust_styles():
-    try:
-        with open(STYLE_JSON_PATH, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-    except FileNotFoundError:
-        return []
-    return raw.get("illust_styles", [])
+    return _load_json_entries_from_file(STYLE_JSON_PATH, "illust_styles")
 
 
 @st.cache_data
 def load_story_cards():
-    try:
-        with open(STORY_JSON_PATH, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-    except FileNotFoundError:
-        return []
-    except json.JSONDecodeError:
-        return []
-
-    cards = raw.get("cards") or []
-    return [card for card in cards if isinstance(card, dict)]
+    return _load_json_entries_from_file(STORY_JSON_PATH, "cards")
 
 
 @st.cache_data
 def load_ending_cards():
-    try:
-        with open(ENDING_JSON_PATH, "r", encoding="utf-8") as f:
-            raw = json.load(f)
-    except FileNotFoundError:
-        return []
-    except json.JSONDecodeError:
-        return []
-
-    endings = raw.get("story_endings") or []
-    return [ending for ending in endings if isinstance(ending, dict)]
+    return _load_json_entries_from_file(ENDING_JSON_PATH, "story_endings")
 
 
 @st.cache_data(show_spinner=False)
@@ -115,58 +168,14 @@ ending_cards = load_ending_cards()
 # 세션 상태: '없을 때만' 기본값. 절대 무조건 대입하지 않음.
 # ─────────────────────────────────────────────────────────────────────
 def ensure_state():
-    st.session_state.setdefault("step", 0)                 # 0: 선택, 1: 입력, 2: 유형/제목, 3: 표지 확인, 4: 카드 선택, 5: 단계 결과, 6: 전체 보기
-    st.session_state.setdefault("mode", None)
-    st.session_state.setdefault("age", None)               # 확정된 값(제출 후 저장)
-    st.session_state.setdefault("topic", None)             # 확정된 값(제출 후 저장)
-    st.session_state.setdefault("current_stage_idx", 0)
+    for key, default in _STATE_SIMPLE_DEFAULTS.items():
+        st.session_state.setdefault(key, default)
+
     if "stages_data" not in st.session_state or len(st.session_state["stages_data"]) != len(STORY_PHASES):
         st.session_state["stages_data"] = [None] * len(STORY_PHASES)
-    # 입력폼 위젯 전용 임시 키(위젯 값 저장용). 최초 렌더에만 기본값 세팅
-    st.session_state.setdefault("age_input", "6-8")
-    st.session_state.setdefault("topic_input", "")
-    # 유형 카드 8개
+
     if "rand8" not in st.session_state:
         st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
-    st.session_state.setdefault("selected_type_idx", 0)
-    # 최신 생성 결과 유지 (스트림릿 리런 대응)
-    st.session_state.setdefault("story_error", None)
-    st.session_state.setdefault("story_result", None)
-    st.session_state.setdefault("story_prompt", None)
-    st.session_state.setdefault("story_image", None)
-    st.session_state.setdefault("story_image_mime", "image/png")
-    st.session_state.setdefault("story_image_style", None)
-    st.session_state.setdefault("story_image_error", None)
-    st.session_state.setdefault("synopsis_result", None)
-    st.session_state.setdefault("synopsis_hooks", None)
-    st.session_state.setdefault("synopsis_error", None)
-    st.session_state.setdefault("is_generating_synopsis", False)
-    st.session_state.setdefault("protagonist_result", None)
-    st.session_state.setdefault("protagonist_error", None)
-    st.session_state.setdefault("is_generating_protagonist", False)
-    st.session_state.setdefault("character_prompt", None)
-    st.session_state.setdefault("character_image", None)
-    st.session_state.setdefault("character_image_mime", "image/png")
-    st.session_state.setdefault("character_image_error", None)
-    st.session_state.setdefault("is_generating_character_image", False)
-    st.session_state.setdefault("selected_style_id", None)
-    st.session_state.setdefault("story_title", None)
-    st.session_state.setdefault("story_title_error", None)
-    st.session_state.setdefault("story_cards_rand4", None)
-    st.session_state.setdefault("selected_story_card_idx", 0)
-    st.session_state.setdefault("story_card_choice", None)
-    st.session_state.setdefault("story_export_path", None)
-    st.session_state.setdefault("selected_export", None)
-    st.session_state.setdefault("story_export_signature", None)
-    st.session_state.setdefault("is_generating_title", False)
-    st.session_state.setdefault("is_generating_story", False)
-    st.session_state.setdefault("story_style_choice", None)
-    st.session_state.setdefault("cover_image", None)
-    st.session_state.setdefault("cover_image_mime", "image/png")
-    st.session_state.setdefault("cover_image_style", None)
-    st.session_state.setdefault("cover_image_error", None)
-    st.session_state.setdefault("cover_prompt", None)
-    st.session_state.setdefault("is_generating_all", False) # 통합 생성 플래그
 
 ensure_state()
 

@@ -4,7 +4,9 @@ import base64
 import io
 import os
 import random
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Callable, Tuple, cast
 
 from PIL import Image
 
@@ -39,6 +41,19 @@ _IMAGE_MODEL_FALLBACKS = ()
 _STYLE_JSON_PATH = Path("illust_styles.json")
 
 _ILLUST_STYLES_CACHE: list[dict] | None = None
+
+
+@dataclass(frozen=True)
+class _TextGenerationResult:
+    """Internal helper structure for Gemini 텍스트 호출 결과."""
+
+    ok: bool
+    payload: Any | None = None
+    error: dict | None = None
+
+
+def _missing_api_key_error() -> dict:
+    return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
 
 _STAGE_GUIDANCE = {
     "발단": "주인공과 배경, 출발 계기를 선명하게 보여주고 모험의 씨앗을 심어 주세요. 따뜻함과 호기심이 함께 느껴지도록 합니다.",
@@ -149,6 +164,81 @@ def _load_illust_styles() -> list[dict]:
 
     _ILLUST_STYLES_CACHE = cleaned
     return _ILLUST_STYLES_CACHE
+
+
+def _require_api_key() -> dict | None:
+    """API 키가 없으면 에러 dict 반환, 있으면 None."""
+    return None if API_KEY else _missing_api_key_error()
+
+
+def _generate_text_with_retry(
+    prompt: str,
+    *,
+    attempts: int = 3,
+    empty_error_message: str = "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)",
+    model_factory: Callable[[str], Any] | None = None,
+    parser: Callable[[str], Tuple[Any | None, dict | None]] | None = None,
+) -> _TextGenerationResult:
+    """공통 Gemini 텍스트 호출 및 파싱 로직."""
+
+    if attempts < 1:
+        attempts = 1
+
+    factory = model_factory or genai.GenerativeModel
+    last_error: dict | None = None
+
+    for attempt in range(1, attempts + 1):
+        try:
+            model = factory(_MODEL)
+            response = model.generate_content(prompt)
+        except Exception as exc:
+            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
+            continue
+
+        text = _extract_text_from_response(response)
+        text = (text or "").strip()
+        if not text:
+            last_error = {"error": empty_error_message, "attempt": attempt}
+            continue
+
+        if parser:
+            parsed_payload, parse_error = parser(text)
+            if parse_error is not None:
+                last_error = {**parse_error, "attempt": attempt}
+                continue
+            return _TextGenerationResult(ok=True, payload=parsed_payload)
+
+        return _TextGenerationResult(ok=True, payload=text)
+
+    if last_error is None:
+        last_error = {"error": "텍스트 생성에 실패했습니다.", "attempts": attempts}
+    else:
+        last_error.setdefault("attempts", attempts)
+    return _TextGenerationResult(ok=False, error=last_error)
+
+
+def _parse_json_from_text(
+    text: str,
+    *,
+    allow_fallback: bool = False,
+) -> Tuple[dict | None, dict | None]:
+    """텍스트에서 JSON 객체를 파싱한다."""
+
+    cleaned = _strip_json_code_fence(text)
+    try:
+        return json.loads(cleaned), None
+    except json.JSONDecodeError as exc:
+        if not allow_fallback:
+            return None, {"error": f"JSONDecodeError: {exc}"}
+
+        fallback_payload = _extract_first_json_object(text)
+        if fallback_payload is None:
+            return None, {"error": f"JSONDecodeError: {exc}"}
+
+        try:
+            return json.loads(fallback_payload), None
+        except json.JSONDecodeError as exc_inner:
+            return None, {"error": f"JSONDecodeError: {exc_inner}"}
 
 def _build_title_prompt(
     age: str,
@@ -338,8 +428,9 @@ def build_image_prompt(
     protagonist_text: str | None = None,
 ) -> dict:
     """이야기와 스타일 정보를 바탕으로 이미지 생성 프롬프트를 구성."""
-    if not API_KEY:
-        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+    api_error = _require_api_key()
+    if api_error:
+        return api_error
 
     styles = _load_illust_styles()
     if not styles:
@@ -413,38 +504,30 @@ def build_image_prompt(
 - Include "without text, typography, signature, or watermark" in the generation prompt to ensure no text, logos, or signs appear.{character_sheet_directive}{reference_image_directive}
 """
 
-    last_error: dict | None = None
-    for attempt in range(1, 4):
-        try:
-            model = genai.GenerativeModel(_MODEL)
-            resp = model.generate_content(directive)
-        except Exception as exc:
-            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
-            continue
+    def _prompt_parser(raw_text: str) -> Tuple[str | None, dict | None]:
+        cleaned = (raw_text or "").strip()
+        if cleaned.startswith("```"):
+            stripped = cleaned.strip("`")
+            cleaned_lines = [ln for ln in stripped.splitlines() if not ln.strip().lower().startswith("prompt")]
+            cleaned = " ".join(line.strip() for line in cleaned_lines if line.strip()).strip()
+        cleaned = " ".join(cleaned.split())
+        if not cleaned:
+            return None, {"error": "Image prompt generation failed."}
+        return cleaned, None
 
-        prompt_text = _extract_text_from_response(resp)
-        final_prompt = (prompt_text or "").strip()
-        if not final_prompt:
-            last_error = {"error": "Image prompt generation failed.", "attempt": attempt}
-            continue
+    result = _generate_text_with_retry(
+        directive,
+        empty_error_message="Image prompt generation failed.",
+        parser=_prompt_parser,
+    )
+    if not result.ok:
+        return result.error or {"error": "Image prompt generation failed."}
 
-        if final_prompt.startswith("```"):
-            cleaned = final_prompt.strip("`")
-            cleaned_lines = [ln for ln in cleaned.splitlines() if not ln.strip().lower().startswith("prompt")]
-            final_prompt = " ".join(line.strip() for line in cleaned_lines if line.strip()).strip()
-
-        final_prompt = " ".join(final_prompt.split())
-
-        return {
-            "prompt": final_prompt,
-            "style_name": style_name,
-            "style_text": style_text,
-        }
-
-    if last_error is None:
-        last_error = {"error": "Image prompt generation failed."}
-    last_error.setdefault("attempts", 3)
-    return last_error
+    return {
+        "prompt": cast(str, result.payload),
+        "style_name": style_name,
+        "style_text": style_text,
+    }
 
 def generate_title_with_gemini(
     age: str,
@@ -456,8 +539,9 @@ def generate_title_with_gemini(
     protagonist: str | None = None,
 ) -> dict:
     """Gemini로 동화 제목을 생성."""
-    if not API_KEY:
-        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+    api_error = _require_api_key()
+    if api_error:
+        return api_error
 
     prompt = _build_title_prompt(
         age,
@@ -467,38 +551,24 @@ def generate_title_with_gemini(
         synopsis_text=synopsis,
         protagonist_text=protagonist,
     )
-    last_error: dict | None = None
+    
+    def _title_parser(raw_text: str) -> Tuple[dict | None, dict | None]:
+        data, parse_error = _parse_json_from_text(raw_text, allow_fallback=False)
+        if parse_error:
+            return None, parse_error
+        title_value = (data.get("title") or "").strip()
+        if not title_value:
+            return None, {"error": "제목을 찾지 못했습니다.", "raw": data}
+        return {"title": title_value}, None
 
-    for attempt in range(1, 4):
-        try:
-            model = genai.GenerativeModel(_MODEL)
-            resp = model.generate_content(prompt)
-        except Exception as exc:
-            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
-            continue
+    result = _generate_text_with_retry(
+        prompt,
+        parser=_title_parser,
+    )
+    if not result.ok:
+        return result.error or {"error": "제목 생성에 실패했습니다."}
 
-        text = _extract_text_from_response(resp)
-        if not text:
-            last_error = {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)", "attempt": attempt}
-            continue
-
-        try:
-            payload = json.loads(_strip_json_code_fence(text))
-        except json.JSONDecodeError as exc:
-            last_error = {"error": f"JSONDecodeError: {exc}", "attempt": attempt}
-            continue
-
-        title = (payload.get("title") or "").strip()
-        if not title:
-            last_error = {"error": "제목을 찾지 못했습니다.", "raw": payload, "attempt": attempt}
-            continue
-
-        return {"title": title}
-
-    if last_error is None:
-        last_error = {"error": "제목 생성에 실패했습니다."}
-    last_error.setdefault("attempts", 3)
-    return last_error
+    return cast(dict[str, str], result.payload)
 
 def generate_synopsis_with_gemini(
     age: str,
@@ -507,36 +577,20 @@ def generate_synopsis_with_gemini(
     story_type_prompt: str,
 ) -> dict:
     """Gemini로 간단한 시놉시스를 생성."""
-    if not API_KEY:
-        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+    api_error = _require_api_key()
+    if api_error:
+        return api_error
 
     prompt = _build_synopsis_prompt(age, topic, story_type_name, story_type_prompt)
-    last_error: dict | None = None
+    result = _generate_text_with_retry(prompt)
+    if not result.ok:
+        return result.error or {"error": "시놉시스 생성에 실패했습니다."}
 
-    for attempt in range(1, 4):
-        try:
-            model = genai.GenerativeModel(_MODEL)
-            resp = model.generate_content(prompt)
-        except Exception as exc:
-            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
-            continue
+    synopsis_text = cast(str, result.payload)
+    if not synopsis_text:
+        return {"error": "시놉시스를 찾지 못했습니다."}
 
-        text_payload = _extract_text_from_response(resp)
-        if not text_payload:
-            last_error = {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)", "attempt": attempt}
-            continue
-
-        synopsis_text = text_payload.strip()
-        if not synopsis_text:
-            last_error = {"error": "시놉시스를 찾지 못했습니다.", "raw": text_payload, "attempt": attempt}
-            continue
-
-        return {"synopsis": synopsis_text}
-
-    if last_error is None:
-        last_error = {"error": "시놉시스 생성에 실패했습니다."}
-    last_error.setdefault("attempts", 3)
-    return last_error
+    return {"synopsis": synopsis_text}
 
 
 def generate_protagonist_with_gemini(
@@ -547,36 +601,20 @@ def generate_protagonist_with_gemini(
     synopsis_text: str | None,
 ) -> dict:
     """Gemini로 주인공 상세 설정을 생성."""
-    if not API_KEY:
-        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+    api_error = _require_api_key()
+    if api_error:
+        return api_error
 
     prompt = _build_protagonist_prompt(age, topic, story_type_name, story_type_prompt, synopsis_text)
-    last_error: dict | None = None
+    result = _generate_text_with_retry(prompt)
+    if not result.ok:
+        return result.error or {"error": "주인공 설정 생성에 실패했습니다."}
 
-    for attempt in range(1, 4):
-        try:
-            model = genai.GenerativeModel(_MODEL)
-            resp = model.generate_content(prompt)
-        except Exception as exc:
-            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
-            continue
+    protagonist_text = cast(str, result.payload)
+    if not protagonist_text:
+        return {"error": "주인공 설정을 찾지 못했습니다."}
 
-        text_payload = _extract_text_from_response(resp)
-        if not text_payload:
-            last_error = {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)", "attempt": attempt}
-            continue
-
-        protagonist_text = text_payload.strip()
-        if not protagonist_text:
-            last_error = {"error": "주인공 설정을 찾지 못했습니다.", "raw": text_payload, "attempt": attempt}
-            continue
-
-        return {"description": protagonist_text}
-
-    if last_error is None:
-        last_error = {"error": "주인공 설정 생성에 실패했습니다."}
-    last_error.setdefault("attempts", 3)
-    return last_error
+    return {"description": protagonist_text}
 
 
 def build_character_image_prompt(
@@ -634,8 +672,9 @@ def generate_story_with_gemini(
     Gemini로 단계별 동화를 생성해 {title, paragraphs[]} dict를 반환.
     실패 시 {"error": "..."} 반환.
     """
-    if not API_KEY:
-        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다 (.env 확인)."}
+    api_error = _require_api_key()
+    if api_error:
+        return api_error
 
     prompt = _build_story_prompt(
         age=age,
@@ -651,51 +690,31 @@ def generate_story_with_gemini(
         synopsis_text=synopsis_text,
         protagonist_text=protagonist_text,
     )
-    last_error: dict | None = None
-
-    for attempt in range(1, 4):
-        try:
-            model = genai.GenerativeModel(_MODEL)
-            resp = model.generate_content(prompt)
-        except Exception as exc:
-            last_error = {"error": f"{type(exc).__name__}: {exc}", "attempt": attempt}
-            continue
-
-        text = _extract_text_from_response(resp)
-        if not text:
-            last_error = {"error": "모델이 빈 응답을 반환했습니다. (세이프티 차단 가능)", "attempt": attempt}
-            continue
-
-        try:
-            data = json.loads(_strip_json_code_fence(text))
-        except json.JSONDecodeError as exc:
-            fallback_payload = _extract_first_json_object(text)
-            if fallback_payload is None:
-                last_error = {"error": f"JSONDecodeError: {exc}", "attempt": attempt}
-                continue
-            try:
-                data = json.loads(fallback_payload)
-            except json.JSONDecodeError as exc_inner:
-                last_error = {"error": f"JSONDecodeError: {exc_inner}", "attempt": attempt}
-                continue
+    
+    def _story_parser(raw_text: str) -> Tuple[dict | None, dict | None]:
+        data, parse_error = _parse_json_from_text(raw_text, allow_fallback=True)
+        if parse_error:
+            return None, parse_error
 
         paragraphs = data.get("paragraphs") or []
         if not isinstance(paragraphs, list) or not paragraphs:
-            last_error = {"error": "반환 JSON 형식이 예상과 다릅니다.", "raw": data, "attempt": attempt}
-            continue
+            return None, {"error": "반환 JSON 형식이 예상과 다릅니다.", "raw": data}
 
-        title_value = (data.get("title") or title or "").strip() or title
         cleaned_paragraphs = [str(p).strip() for p in paragraphs if str(p).strip()]
         if not cleaned_paragraphs:
-            last_error = {"error": "본문 단락을 찾지 못했습니다.", "raw": data, "attempt": attempt}
-            continue
+            return None, {"error": "본문 단락을 찾지 못했습니다.", "raw": data}
 
-        return {"title": title_value, "paragraphs": cleaned_paragraphs}
+        final_title = (data.get("title") or title or "").strip() or title
+        return {"title": final_title, "paragraphs": cleaned_paragraphs}, None
 
-    if last_error is None:
-        last_error = {"error": "동화 생성에 실패했습니다."}
-    last_error.setdefault("attempts", 3)
-    return last_error
+    result = _generate_text_with_retry(
+        prompt,
+        parser=_story_parser,
+    )
+    if not result.ok:
+        return result.error or {"error": "동화 생성에 실패했습니다."}
+
+    return cast(dict[str, Any], result.payload)
 
 def _coerce_bytes(value):
     """다양한 SDK 응답 형식을 안전하게 bytes로 변환."""
