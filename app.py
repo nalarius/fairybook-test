@@ -22,7 +22,7 @@ from gemini_client import (
     generate_protagonist_with_gemini,
 )
 
-st.set_page_config(page_title="한 줄 동화 만들기", page_icon="📖", layout="centered")
+st.set_page_config(page_title="동화책 생성기", page_icon="📖", layout="centered")
 
 JSON_PATH = "storytype.json"
 STYLE_JSON_PATH = "illust_styles.json"
@@ -31,6 +31,7 @@ ENDING_JSON_PATH = "ending.json"
 ILLUST_DIR = "illust"
 HTML_EXPORT_DIR = "html_exports"
 HTML_EXPORT_PATH = Path(HTML_EXPORT_DIR)
+HOME_BACKGROUND_IMAGE_PATH = Path("assets/illus-home-hero.png")
 
 STORY_PHASES = ["발단", "전개", "위기", "절정", "결말"]
 STAGE_GUIDANCE = {
@@ -85,6 +86,20 @@ def load_ending_cards():
 
     endings = raw.get("story_endings") or []
     return [ending for ending in endings if isinstance(ending, dict)]
+
+
+@st.cache_data(show_spinner=False)
+def load_image_as_base64(path: str) -> str | None:
+    """지정된 경로의 이미지를 base64 문자열로 반환."""
+    if not path:
+        return None
+    try:
+        data = Path(path).read_bytes()
+    except FileNotFoundError:
+        return None
+    except IsADirectoryError:
+        return None
+    return base64.b64encode(data).decode("utf-8")
 
 
 story_types = load_story_types()
@@ -507,7 +522,7 @@ def export_story_to_html(
 # ─────────────────────────────────────────────────────────────────────
 # 헤더/진행
 # ─────────────────────────────────────────────────────────────────────
-st.title("📖 한 줄 주제로 동화 만들기")
+st.title("📖 동화책 생성기")
 progress_placeholder = st.empty()
 mode = st.session_state.get("mode")
 current_step = st.session_state["step"]
@@ -538,7 +553,7 @@ else:
 if current_step == 0:
     st.caption("원하는 작업을 선택해주세요.")
 elif mode == "create":
-    st.caption("제목을 정하고 이야기 카드를 골라 차근차근 동화를 완성해보세요.")
+    st.caption("차근차근 동화를 완성해보세요.")
 else:
     st.caption("저장된 동화를 살펴볼 수 있어요.")
 
@@ -546,6 +561,32 @@ else:
 # STEP 1 — 나이대/주제 입력 (form으로 커밋 시점 고정, 확정 키와 분리)
 # ─────────────────────────────────────────────────────────────────────
 if current_step == 0:
+    home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
+    if home_bg:
+        st.markdown(
+            f"""
+            <style>
+            .stApp {{
+                background-image: url("data:image/png;base64,{home_bg}");
+                background-size: cover;
+                background-position: center;
+                background-repeat: no-repeat;
+                background-attachment: fixed;
+            }}
+            [data-testid="stHeader"] {{
+                background: rgba(0, 0, 0, 0);
+            }}
+            [data-testid="stAppViewContainer"] > .main > div:first-child {{
+                background-color: rgba(255, 255, 255, 0.86);
+                border-radius: 24px;
+                padding: 2.5rem 2.25rem;
+                box-shadow: 0 22px 48px rgba(0, 0, 0, 0.16);
+                backdrop-filter: blur(2px);
+            }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
     st.subheader("어떤 작업을 하시겠어요?")
     exports_available = bool(list_html_exports())
 
@@ -568,10 +609,10 @@ if current_step == 0:
             st.session_state["step"] = 5
 
     if not exports_available:
-        st.caption("저장된 HTML 파일이 아직 없습니다. 먼저 동화를 만들어 저장해 주세요.")
+        st.caption("저장된 동화가 아직 없습니다. 먼저 동화를 만들어 저장해 주세요.")
 
 elif current_step == 1:
-    st.subheader("1단계. 나이대와 주제를 고르세요")
+    st.subheader("1단계. 나이대와 이야기 아이디어를 입력하세요")
 
     # 폼 제출 전까지는 age/topic을 건드리지 않음
     with st.form("step1_form", clear_on_submit=False):
@@ -584,7 +625,7 @@ elif current_step == 1:
         st.caption("이야기의 주제, 진행 방향, 주요 인물 등을 자유롭게 입력해주세요.")
         st.text_area(
             "이야기 아이디어",
-            placeholder="예) 잃어버린 모자를 찾는 모험에서 동물 친구들이 함께 돕는 이야기",
+            placeholder="예) 꼬마 제이가 동물 친구들과 함께 잃어버린 모자를 찾는 모험 이야기",
             height=96,
             key="topic_input",  # 위젯은 topic_input에만 바인딩
         )
@@ -633,7 +674,7 @@ elif current_step == 2:
 
     if st.session_state.get("is_generating_all"):
         st.header("동화의 씨앗을 심고 있어요 🌱")
-        st.caption("Gemini와 함께 이야기의 첫 단추를 꿰는 중입니다. 잠시만 기다려주세요.")
+        st.caption("이야기의 첫 단추를 꿰는 중입니다. 잠시만 기다려주세요.")
         progress_bar = st.progress(0.0, "시작하는 중...")
 
         def show_error_and_stop(message: str):
@@ -787,13 +828,13 @@ elif current_step == 2:
     st.markdown("---")
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 나이/주제 다시 선택", use_container_width=True):
+        if st.button("← 이야기 아이디어 다시 입력", use_container_width=True):
             reset_story_session()
             go_step(1)
             st.rerun()
             st.stop()
     with nav_col2:
-        if st.button("새로운 8개 뽑기", use_container_width=True):
+        if st.button("새로운 스토리 유형 뽑기", use_container_width=True):
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types))) if story_types else []
             st.session_state["selected_type_idx"] = 0
             reset_story_session()
@@ -869,7 +910,7 @@ elif current_step == 3:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("← 제목/표지 다시 만들기", use_container_width=True):
+        if st.button("← 제목 다시 만들기", use_container_width=True):
             reset_story_session()
             go_step(2)
             st.rerun()
@@ -1032,7 +1073,7 @@ elif current_step == 4 and mode == "create":
             st.rerun()
             st.stop()
     with nav_col2:
-        if st.button("새로운 4개 뽑기", use_container_width=True):
+        if st.button("새로운 스토리 카드 뽑기", use_container_width=True):
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.rerun()
             st.stop()
@@ -1111,7 +1152,7 @@ elif current_step == 5 and mode == "create":
         st.header("동화를 준비하고 있어요 ✨")
         st.caption(f"{stage_name} 단계에 맞춰 이야기를 확장하고 있습니다.")
 
-        with st.spinner("Gemini로 단계별 이야기와 삽화를 준비 중..."):
+        with st.spinner("이야기와 삽화를 준비 중..."):
             clear_stages_from(stage_idx)
             story_result = generate_story_with_gemini(
                 age=age_val,
@@ -1236,7 +1277,7 @@ elif current_step == 5 and mode == "create":
     story_data = stage_entry.get("story") if stage_entry else st.session_state.get("story_result")
 
     if not story_data and not story_error:
-        st.info("이야기 카드를 선택한 뒤 ‘이 단계 이야기 만들기’ 버튼을 눌러주세요.")
+        st.info("이야기 카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요.")
         if st.button("이야기 카드 화면으로", use_container_width=True):
             go_step(4)
             st.rerun()
@@ -1282,7 +1323,7 @@ elif current_step == 5 and mode == "create":
 
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 이 단계 카드 다시 고르기", use_container_width=True):
+        if st.button("← 카드 다시 고르기", use_container_width=True):
             clear_stages_from(stage_idx)
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             go_step(4)
@@ -1303,7 +1344,7 @@ elif current_step == 5 and mode == "create":
                 st.stop()
         else:
             if st.button(
-                "전체 이야기 모아보기 →",
+                "이야기 모아보기 →",
                 use_container_width=True,
                 disabled=not stage_completed,
             ):
@@ -1318,13 +1359,13 @@ elif current_step == 5 and mode == "create":
             st.stop()
 
     if stage_entry and stage_idx < len(STORY_PHASES) - 1:
-        if st.button("지금까지 이야기 모아보기", use_container_width=True):
+        if st.button("이야기 모아보기", use_container_width=True):
             st.session_state["step"] = 6
             st.rerun()
             st.stop()
 
 elif current_step == 6 and mode == "create":
-    st.subheader("6단계. 전체 이야기를 모아봤어요")
+    st.subheader("6단계. 이야기를 모아봤어요")
 
     title_val = (st.session_state.get("story_title") or "동화").strip()
     age_val = st.session_state.get("age") or "6-8"
@@ -1495,17 +1536,17 @@ elif current_step == 6 and mode == "create":
             st.session_state["step"] = 1
             st.rerun()
     with c3:
-        if st.button("📂 저장본 보기", use_container_width=True):
+        if st.button("📂 저장한 동화 보기", use_container_width=True):
             st.session_state["mode"] = "view"
             st.session_state["step"] = 5
             st.rerun()
 
 elif current_step == 5 and mode == "view":
-    st.subheader("저장된 동화 보기")
+    st.subheader("저장한 동화 보기")
     exports = list_html_exports()
 
     if not exports:
-        st.info("저장된 HTML 파일이 없습니다. 먼저 동화를 생성해 HTML로 저장해 주세요.")
+        st.info("저장된 동화가 없습니다. 먼저 동화를 생성해주세요.")
     else:
         options = []
         for path in exports:
@@ -1523,7 +1564,7 @@ elif current_step == 5 and mode == "view":
                 default_index = 0
 
         selection = st.selectbox(
-            "열람할 파일을 선택하세요",
+            "읽고 싶은 동화를 선택하세요",
             options,
             index=default_index,
         )
@@ -1534,10 +1575,10 @@ elif current_step == 5 and mode == "view":
         try:
             html_content = selected_path.read_text("utf-8")
         except Exception as exc:
-            st.error(f"파일을 여는 데 실패했습니다: {exc}")
+            st.error(f"동화를 여는 데 실패했습니다: {exc}")
         else:
             st.download_button(
-                "HTML 다운로드",
+                "동화 다운로드",
                 data=html_content,
                 file_name=selected_path.name,
                 mime="text/html",
