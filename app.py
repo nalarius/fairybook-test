@@ -6,12 +6,14 @@ import json
 import os
 import random
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_image_select import image_select
+from community_board import BoardPost, add_post, init_board_store, list_posts
 from gemini_client import (
     generate_story_with_gemini,
     generate_image_with_gemini,
@@ -41,6 +43,9 @@ STAGE_GUIDANCE = {
     "절정": "결정적인 선택이나 행동으로 이야기가 뒤집히는 순간입니다. 장엄하거나 아슬아슬한 분위기와 함께 감정이 폭발하도록 그려주세요.",
     "결말": "사건의 여파를 정리하면서 여운을 남기세요. 밝은 마무리든 씁쓸한 끝맺음이든 자연스럽게 수용하고, 아이가 상상할 여백을 둡니다.",
 }
+
+KST = ZoneInfo("Asia/Seoul")
+BOARD_POST_LIMIT = 50
 
 HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 
@@ -73,6 +78,12 @@ _STATE_SIMPLE_DEFAULTS: dict[str, object] = {
     # Form seed values
     "age_input": "6-8",
     "topic_input": "",
+
+    # Board form state
+    "board_user_id": "",
+    "board_content": "",
+    "board_submit_error": None,
+    "board_submit_success": None,
 
     # Story generation artefacts
     "story_error": None,
@@ -224,6 +235,132 @@ def render_app_styles(home_bg: str | None, *, show_home_hero: bool = False) -> N
             f"<div class=\"home-hero\" style=\"background-image: url('data:image/png;base64,{home_bg}');\"></div>",
             unsafe_allow_html=True,
         )
+
+
+def get_client_ip() -> str | None:
+    """Attempt to extract the visitor's IP from Streamlit's request headers."""
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+        ctx = get_script_run_ctx()
+        if not ctx:
+            return None
+        headers = getattr(ctx, "request_headers", None)
+        if not headers:
+            return None
+
+        forwarded_for = headers.get("X-Forwarded-For")
+        if forwarded_for:
+            return forwarded_for.split(",")[0].strip()
+        for header_key in ("X-Real-IP", "CF-Connecting-IP", "Remote-Addr"):
+            candidate = headers.get(header_key)
+            if candidate:
+                return candidate.strip()
+    except Exception:
+        return None
+    return None
+
+
+def mask_client_ip(client_ip: str | None) -> str:
+    """Obscure parts of the IP address for display."""
+    if not client_ip:
+        return "unknown"
+    ip = client_ip.strip()
+    if not ip:
+        return "unknown"
+    if ":" in ip:  # IPv6
+        ip_no_scope = ip.split("%", 1)[0]
+        groups = [group for group in ip_no_scope.split(":") if group]
+        if len(groups) >= 3:
+            return ":".join(groups[:3]) + ":*:*"
+        return ip_no_scope
+    parts = ip.split(".")
+    if len(parts) >= 4:
+        return ".".join(parts[:2]) + ".*.*"
+    if len(parts) == 3:
+        return ".".join(parts[:1]) + ".*.*.*"
+    return ip
+
+
+def format_kst(dt: datetime) -> str:
+    aware = dt
+    if dt.tzinfo is None:
+        aware = dt.replace(tzinfo=timezone.utc)
+    return aware.astimezone(KST).strftime("%Y-%m-%d %H:%M")
+
+
+def render_board_page(home_bg: str | None) -> None:
+    """Render the lightweight community board view."""
+    init_board_store()
+    render_app_styles(home_bg, show_home_hero=False)
+
+    st.subheader("💬 동화 작업실 게시판")
+    st.caption("동화를 만드는 분들끼리 짧은 메모를 나누는 공간이에요. 친절한 응원과 진행 상황을 가볍게 남겨보세요.")
+
+    if st.button("← 홈으로 돌아가기", use_container_width=True):
+        st.session_state["mode"] = None
+        st.session_state["step"] = 0
+        st.session_state["board_submit_error"] = None
+        st.session_state["board_submit_success"] = None
+        st.rerun()
+        st.stop()
+
+    st.markdown("---")
+
+    with st.form("board_form", clear_on_submit=False):
+        user_id_value = st.text_input(
+            "사용자 ID",
+            value=st.session_state.get("board_user_id", ""),
+            max_chars=24,
+            placeholder="예: story_maker",
+        )
+        content_value = st.text_area(
+            "메시지",
+            value=st.session_state.get("board_content", ""),
+            height=140,
+            max_chars=1000,
+            placeholder="동화 작업 중 느낀 점이나 부탁할 내용을 자유롭게 남겨주세요.",
+        )
+        submitted = st.form_submit_button("메시지 남기기", type="primary", use_container_width=True)
+
+    st.session_state["board_user_id"] = user_id_value
+    st.session_state["board_content"] = content_value
+
+    if submitted:
+        try:
+            client_ip = get_client_ip()
+            add_post(user_id=user_id_value, content=content_value, client_ip=client_ip)
+        except ValueError as exc:
+            st.session_state["board_submit_error"] = str(exc)
+        except Exception:
+            st.session_state["board_submit_error"] = "메시지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."
+        else:
+            st.session_state["board_content"] = ""
+            st.session_state["board_submit_error"] = None
+            st.session_state["board_submit_success"] = "메시지를 남겼어요!"
+            st.rerun()
+            st.stop()
+
+    if st.session_state.get("board_submit_error"):
+        st.error(st.session_state["board_submit_error"])
+        st.session_state["board_submit_error"] = None
+    elif st.session_state.get("board_submit_success"):
+        st.success(st.session_state["board_submit_success"])
+        st.session_state["board_submit_success"] = None
+
+    posts: list[BoardPost] = list_posts(limit=BOARD_POST_LIMIT)
+    if not posts:
+        st.info("아직 작성된 메시지가 없어요. 첫 글을 남겨보세요!")
+        return
+
+    st.markdown("---")
+    for post in posts:
+        masked_ip = mask_client_ip(post.client_ip)
+        timestamp = format_kst(post.created_at_utc)
+        meta = f"{timestamp} · {masked_ip}"
+        st.markdown(f"**{post.user_id}** · {meta}")
+        st.write(post.content)
+        st.markdown("---")
 
 def go_step(n: int):
     st.session_state["step"] = n
@@ -605,17 +742,22 @@ if mode == "create" and current_step > 0:
 else:
     progress_placeholder.empty()
 
-if current_step == 0:
-    st.caption("원하는 작업을 선택해주세요.")
-elif mode == "create":
-    st.caption("차근차근 동화를 완성해보세요.")
-else:
-    st.caption("저장된 동화를 살펴볼 수 있어요.")
+if mode != "board":
+    if current_step == 0:
+        st.caption("원하는 작업을 선택해주세요.")
+    elif mode == "create":
+        st.caption("차근차근 동화를 완성해보세요.")
+    else:
+        st.caption("저장된 동화를 살펴볼 수 있어요.")
 
 # ─────────────────────────────────────────────────────────────────────
 # STEP 1 — 나이대/주제 입력 (form으로 커밋 시점 고정, 확정 키와 분리)
 # ─────────────────────────────────────────────────────────────────────
 home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
+if mode == "board":
+    render_board_page(home_bg)
+    st.stop()
+
 render_app_styles(home_bg, show_home_hero=current_step == 0)
 
 if current_step == 0:
@@ -639,6 +781,14 @@ if current_step == 0:
         if view_clicked:
             st.session_state["mode"] = "view"
             st.session_state["step"] = 5
+
+    board_clicked = st.button("💬 동화 작업실 게시판", use_container_width=True)
+    if board_clicked:
+        st.session_state["mode"] = "board"
+        st.session_state["step"] = 0
+        st.session_state["board_submit_error"] = None
+        st.session_state["board_submit_success"] = None
+        st.rerun()
 
     if not exports_available:
         st.caption("저장된 동화가 아직 없습니다. 먼저 동화를 만들어 저장해 주세요.")
