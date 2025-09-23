@@ -25,14 +25,15 @@ pip install -r requirements.txt
 ```
 
 ### Configure Secrets
-1. Create a `.env` file in the project root (do not commit real keys).
-2. Add the required variables:
+1. Copy `.env.sample` to `.env` in the project root (the sample ships with dummy values).
+2. Replace `GEMINI_API_KEY` with your real key and adjust other variables as needed:
    ```ini
    GEMINI_API_KEY="your-api-key"
    # Optional: override the default image model
    GEMINI_IMAGE_MODEL="models/gemini-2.5-flash-image-preview"
    ```
 3. Restart the Streamlit app after changing `.env` so the new values load.
+4. Keep `.env` out of version control; only `.env.sample` should be committed.
 
 > Tip: rotate keys immediately if they ever appear in command output, logs, or commit history.
 
