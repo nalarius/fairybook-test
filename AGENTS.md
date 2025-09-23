@@ -3,6 +3,8 @@
 ## Project Structure & Module Organization
 The Streamlit interface lives in `app.py`, orchestrating stateful UI steps and calling into `gemini_client.py`. Model prompts, story metadata, and ending templates are stored in the JSON files at the repo root (`storytype.json`, `story.json`, `ending.json`, `illust_styles.json`). Illustration thumbnails sit under `illust/`; keep additions lightweight (PNG, 512×512) to preserve load time. Configuration is loaded lazily, so introduce new modules alongside existing ones and import them from `app.py` or `gemini_client.py` to ensure Streamlit reruns cleanly.
 
+The community board is an explicitly temporary sandbox feature. Keep `community_board.py` and the board-specific UI hooks in `app.py` isolated from the story-generation flow so the module can be removed or swapped without touching the rest of the app. Avoid spreading board helpers or state into other packages; if you need to expand it, add self-contained utilities alongside the existing board module.
+
 ## Build, Test, and Development Commands
 Use Python 3.11+.
 ```

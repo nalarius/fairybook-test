@@ -9,6 +9,7 @@ Fairybook is a Streamlit application that helps educators and parents craft shor
 - Consistent illustration style: the initial generation locks a single art direction and reuses it for character art, stage visuals, and the cover.
 - HTML exports: bundle the title, cover, stage illustrations, and prose into timestamped HTML files stored under `html_exports/`.
 - Saved story browser: revisit previous exports inside the app without leaving Streamlit.
+- Temporary community board: leave quick notes for fellow writers; implemented in an isolated `community_board.py` module so it can be removed or swapped independently.
 
 ## Getting Started
 
@@ -62,6 +63,7 @@ The tests live under `tests/` and mock `google.generativeai.GenerativeModel`, so
 
 ## Repository Tour
 - `app.py` – Streamlit UI and session-state management for the multi-step workflow, including the automated synopsis → protagonist → character art → title seeding loop.
+- `community_board.py` – Self-contained SQLite helpers powering the temporary collaboration board; keep changes scoped here so the feature remains easy to disable.
 - `gemini_client.py` – Gemini integration, including story prompt composition, synopsis/protagonist prompt builders, illustration prompt generation, and image model fallbacks.
 - `storytype.json`, `story.json`, `ending.json` – Data assets that describe story archetypes, reusable beats, and ending templates.
 - `illust_styles.json` – Illustration style catalog used to randomize art direction.
@@ -71,6 +73,7 @@ The tests live under `tests/` and mock `google.generativeai.GenerativeModel`, so
 
 ## Development Notes
 - Follow PEP 8, keep Streamlit widget keys stable, and prefer helper functions for repeated logic.
+- Treat the community board as experimental: keep board state, storage, and UI hooks isolated and avoid coupling it with the story flow.
 - When adding dependencies, pin them in `requirements.txt` and capture the change with `pip freeze` before committing.
 - Automated coverage currently focuses on `gemini_client.py`; extend the `pytest` suites under `tests/` and continue mocking `google.generativeai` interactions to avoid hitting external APIs.
 - Manual verification: launch the app, walk through all six creation steps (including the cover preview), ensure each stage inherits the locked illustration style, and reload saved HTML exports to confirm rendering.
