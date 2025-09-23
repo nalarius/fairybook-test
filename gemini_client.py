@@ -26,13 +26,25 @@ API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # ── 2) Gemini 설정 ──────────────────────────────────────────────────
 import json
-import google.generativeai as genai
+_GENAI_MODULE: Any | None = None
+_GENAI_CONFIGURED = False
 
-if API_KEY:
-    genai.configure(api_key=API_KEY)
-else:
-    # 키가 없어도 import 에러 없이 함수 호출 시 에러 메시지로 안내
-    pass
+
+def _get_genai_module():
+    """Lazily import and configure the google.generativeai SDK."""
+    global _GENAI_MODULE, _GENAI_CONFIGURED
+
+    if _GENAI_MODULE is None:
+        import google.generativeai as genai_mod  # type: ignore
+
+        _GENAI_MODULE = genai_mod
+
+    if not _GENAI_CONFIGURED:
+        if API_KEY:
+            _GENAI_MODULE.configure(api_key=API_KEY)
+        _GENAI_CONFIGURED = True
+
+    return _GENAI_MODULE
 
 _MODEL = "gemini-1.5-flash"  # 속도/비용 유리(샘플용)
 _IMAGE_MODEL_ENV = (os.getenv("GEMINI_IMAGE_MODEL") or "").strip()
@@ -184,7 +196,8 @@ def _generate_text_with_retry(
     if attempts < 1:
         attempts = 1
 
-    factory = model_factory or genai.GenerativeModel
+    genai_mod = None if model_factory else _get_genai_module()
+    factory = model_factory or genai_mod.GenerativeModel
     last_error: dict | None = None
 
     for attempt in range(1, attempts + 1):
@@ -753,7 +766,8 @@ def _iter_image_models():
 
 def _instantiate_image_model(model_name: str):
     """SDK 버전에 따라 적합한 이미지 모델 인스턴스를 생성."""
-    return genai.GenerativeModel(model_name)
+    genai_mod = _get_genai_module()
+    return genai_mod.GenerativeModel(model_name)
 
 
 def _extract_image_from_response(resp):
