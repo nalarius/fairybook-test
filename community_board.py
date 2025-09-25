@@ -9,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
 
+from google_credentials import get_service_account_credentials
+
 try:  # pragma: no cover - optional dependency checked at runtime
     from google.cloud import firestore  # type: ignore
 except Exception:  # pragma: no cover - gracefully handle missing package
@@ -55,20 +57,34 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _ensure_remote_ready() -> None:
-    if not FIRESTORE_PROJECT_ID:
-        raise RuntimeError(
-            "FIRESTORE_PROJECT_ID must be set when STORY_STORAGE_MODE is 'remote' for the board."
-        )
     if firestore is None:
         raise RuntimeError("google-cloud-firestore must be installed for remote board storage")
+
+    if FIRESTORE_PROJECT_ID:
+        return
+
+    credentials = get_service_account_credentials()
+    project_id = getattr(credentials, "project_id", "") if credentials else ""
+    if not project_id:
+        raise RuntimeError(
+            "FIRESTORE_PROJECT_ID must be set or provided via service-account credentials for the board."
+        )
 
 
 @lru_cache(maxsize=1)
 def _get_firestore_client():
     _ensure_remote_ready()
     client_kwargs: dict[str, str] = {}
+    credentials = get_service_account_credentials()
+    if credentials is not None:
+        client_kwargs["credentials"] = credentials
+
     if FIRESTORE_PROJECT_ID:
         client_kwargs["project"] = FIRESTORE_PROJECT_ID
+    elif credentials is not None:
+        project_id = getattr(credentials, "project_id", "")
+        if project_id:
+            client_kwargs["project"] = project_id
     return firestore.Client(**client_kwargs)  # type: ignore[arg-type]
 
 
