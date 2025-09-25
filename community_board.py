@@ -1,11 +1,18 @@
-"""Lightweight community board datastore helpers."""
+"""Lightweight community board datastore helpers with dual backends."""
 from __future__ import annotations
 
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Protocol
+
+try:  # pragma: no cover - optional dependency checked at runtime
+    from google.cloud import firestore  # type: ignore
+except Exception:  # pragma: no cover - gracefully handle missing package
+    firestore = None  # type: ignore
 
 BOARD_DB_PATH = Path("board.db")
 _TABLE_SCHEMA_SQL = """
@@ -18,12 +25,19 @@ CREATE TABLE IF NOT EXISTS board_posts (
 );
 """
 
+_STORY_STORAGE_MODE = (os.getenv("STORY_STORAGE_MODE") or "remote").strip().lower()
+USE_REMOTE_BOARD = _STORY_STORAGE_MODE in {"remote", "gcs"}
+
+FIRESTORE_PROJECT_ID = (os.getenv("FIRESTORE_PROJECT_ID") or "").strip()
+_FIRESTORE_COLLECTION_RAW = (os.getenv("FIRESTORE_COLLECTION") or "posts").strip()
+FIRESTORE_COLLECTION = _FIRESTORE_COLLECTION_RAW or "posts"
+
 
 @dataclass(slots=True)
 class BoardPost:
     """Representation of a single board post."""
 
-    id: int
+    id: str
     user_id: str
     content: str
     client_ip: str | None
@@ -40,8 +54,43 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _ensure_remote_ready() -> None:
+    if not FIRESTORE_PROJECT_ID:
+        raise RuntimeError(
+            "FIRESTORE_PROJECT_ID must be set when STORY_STORAGE_MODE is 'remote' for the board."
+        )
+    if firestore is None:
+        raise RuntimeError("google-cloud-firestore must be installed for remote board storage")
+
+
+@lru_cache(maxsize=1)
+def _get_firestore_client():
+    _ensure_remote_ready()
+    client_kwargs: dict[str, str] = {}
+    if FIRESTORE_PROJECT_ID:
+        client_kwargs["project"] = FIRESTORE_PROJECT_ID
+    return firestore.Client(**client_kwargs)  # type: ignore[arg-type]
+
+
+def _get_firestore_collection():
+    client = _get_firestore_client()
+    return client.collection(FIRESTORE_COLLECTION)
+
+
+def reset_board_storage_cache() -> None:
+    """Testing helper to reset cached Firestore clients."""
+
+    _get_firestore_client.cache_clear()
+
+
 def init_board_store(db_path: Path = BOARD_DB_PATH) -> None:
-    """Ensure the SQLite database and table exist."""
+    """Prepare the persistence layer for the community board."""
+
+    if USE_REMOTE_BOARD:
+        _ensure_remote_ready()
+        _get_firestore_collection()  # Touch once to validate credentials/collection.
+        return
+
     with _connect(db_path) as conn:
         conn.execute(_TABLE_SCHEMA_SQL)
         conn.commit()
@@ -55,10 +104,8 @@ def add_post(
     db_path: Path = BOARD_DB_PATH,
     max_content_length: int = 1000,
 ) -> None:
-    """Persist a new board post.
+    """Persist a new board post via the configured backend."""
 
-    Raises ValueError if the provided user id or content is empty after trimming.
-    """
     normalized_user = str(user_id).strip()
     normalized_content = str(content).strip()
 
@@ -70,23 +117,71 @@ def add_post(
     if max_content_length and len(normalized_content) > max_content_length:
         normalized_content = normalized_content[:max_content_length]
 
-    timestamp = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    timestamp = datetime.now(timezone.utc)
 
+    if USE_REMOTE_BOARD:
+        collection = _get_firestore_collection()
+        doc_ref = collection.document()
+        doc_ref.set(
+            {
+                "user_id": normalized_user,
+                "content": normalized_content,
+                "client_ip": client_ip,
+                "created_at_utc": timestamp,
+            }
+        )
+        return
+
+    timestamp_iso = timestamp.isoformat(timespec="seconds")
     with _connect(db_path) as conn:
         conn.execute(
             """
             INSERT INTO board_posts (user_id, content, client_ip, created_at_utc)
             VALUES (?, ?, ?, ?)
             """,
-            (normalized_user, normalized_content, client_ip, timestamp),
+            (normalized_user, normalized_content, client_ip, timestamp_iso),
         )
         conn.commit()
 
 
+def _coerce_datetime(value) -> datetime:
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        try:
+            dt = datetime.fromisoformat(str(value))
+        except Exception:  # pragma: no cover - defensive fallback
+            dt = datetime.now(timezone.utc)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def list_posts(*, limit: int = 50, db_path: Path = BOARD_DB_PATH) -> list[BoardPost]:
-    """Return the most recent board posts."""
+    """Return the most recent board posts from the configured backend."""
+
     if limit <= 0:
         return []
+
+    if USE_REMOTE_BOARD:
+        collection = _get_firestore_collection()
+        direction = getattr(getattr(firestore, "Query", None), "DESCENDING", None)
+        query = collection.order_by("created_at_utc", direction=direction).limit(limit)
+        documents = list(query.stream())
+
+        posts: list[BoardPost] = []
+        for doc in documents:
+            data = doc.to_dict() or {}
+            posts.append(
+                BoardPost(
+                    id=str(getattr(doc, "id", "")),
+                    user_id=str(data.get("user_id", "")),
+                    content=str(data.get("content", "")),
+                    client_ip=data.get("client_ip"),
+                    created_at_utc=_coerce_datetime(data.get("created_at_utc")),
+                )
+            )
+        return posts
 
     with _connect(db_path) as conn:
         cursor = conn.execute(
@@ -102,23 +197,11 @@ def list_posts(*, limit: int = 50, db_path: Path = BOARD_DB_PATH) -> list[BoardP
 
     posts: list[BoardPost] = []
     for row in rows:
-        raw_created = row["created_at_utc"]
-        created_at: datetime
-        if isinstance(raw_created, datetime):
-            created_at = raw_created
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-        else:
-            try:
-                created_at = datetime.fromisoformat(str(raw_created))
-            except ValueError:
-                created_at = datetime.now(timezone.utc)
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
+        created_at = _coerce_datetime(row["created_at_utc"])
 
         posts.append(
             BoardPost(
-                id=int(row["id"]),
+                id=str(row["id"]),
                 user_id=str(row["user_id"]),
                 content=str(row["content"]),
                 client_ip=str(row["client_ip"]) if row["client_ip"] is not None else None,
@@ -126,3 +209,12 @@ def list_posts(*, limit: int = 50, db_path: Path = BOARD_DB_PATH) -> list[BoardP
             )
         )
     return posts
+
+
+__all__ = [
+    "BoardPost",
+    "add_post",
+    "init_board_store",
+    "list_posts",
+    "reset_board_storage_cache",
+]
