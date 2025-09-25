@@ -6,6 +6,7 @@ import os
 import random
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Callable, Tuple, cast
 
 from PIL import Image
@@ -28,19 +29,24 @@ API_KEY = os.getenv("GEMINI_API_KEY", "")
 import json
 _GENAI_MODULE: Any | None = None
 _GENAI_CONFIGURED = False
+genai: Any = SimpleNamespace(GenerativeModel=None)
 
 
 def _get_genai_module():
     """Lazily import and configure the google.generativeai SDK."""
-    global _GENAI_MODULE, _GENAI_CONFIGURED
+    global _GENAI_MODULE, _GENAI_CONFIGURED, genai
 
     if _GENAI_MODULE is None:
-        import google.generativeai as genai_mod  # type: ignore
+        if getattr(genai, "GenerativeModel", None) is not None:
+            _GENAI_MODULE = genai
+        else:
+            import google.generativeai as genai_mod  # type: ignore
 
-        _GENAI_MODULE = genai_mod
+            _GENAI_MODULE = genai_mod
+            genai = genai_mod
 
     if not _GENAI_CONFIGURED:
-        if API_KEY:
+        if API_KEY and hasattr(_GENAI_MODULE, "configure"):
             _GENAI_MODULE.configure(api_key=API_KEY)
         _GENAI_CONFIGURED = True
 
