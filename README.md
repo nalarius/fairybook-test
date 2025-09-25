@@ -35,6 +35,22 @@ pip install -r requirements.txt
 3. Restart the Streamlit app after changing `.env` so the new values load.
 4. Keep `.env` out of version control; only `.env.sample` should be committed.
 
+### Streamlit Cloud Secrets
+If `google-credential.json` is unavailable (for example on Streamlit Cloud), add the service-account payload to `.streamlit/secrets.toml` instead:
+
+```toml
+[google_credentials]
+type = "service_account"
+project_id = "your-project-id"
+private_key_id = "..."
+private_key = "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
+client_email = "your-service-account@your-project.iam.gserviceaccount.com"
+client_id = "..."
+token_uri = "https://oauth2.googleapis.com/token"
+```
+
+The app now detects these secrets (or a `GOOGLE_CREDENTIALS_JSON` value) and uses them automatically when `google-credential.json` is missing.
+
 > Tip: rotate keys immediately if they ever appear in command output, logs, or commit history.
 
 ## Run the App

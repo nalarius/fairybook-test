@@ -10,6 +10,8 @@ from typing import Any, Iterable
 
 from dotenv import load_dotenv
 
+from google_credentials import get_service_account_credentials
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -66,6 +68,13 @@ def _get_client() -> Any:
     client_kwargs: dict[str, str] = {}
     if GCP_PROJECT:
         client_kwargs["project"] = GCP_PROJECT
+    credentials = get_service_account_credentials()
+    if credentials is not None:
+        client_kwargs["credentials"] = credentials
+        if not GCP_PROJECT:
+            project_id = getattr(credentials, "project_id", "")
+            if project_id:
+                client_kwargs["project"] = project_id
     return storage.Client(**client_kwargs)  # type: ignore[arg-type]
 
 
