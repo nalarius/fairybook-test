@@ -1,3 +1,5 @@
 __pycache__
 board.db
 .env
+google-credential.json
+
