@@ -110,7 +110,7 @@ def test_remote_board_firestore(monkeypatch):
     module = reload_board(
         monkeypatch,
         STORY_STORAGE_MODE="remote",
-        FIRESTORE_PROJECT_ID="test-project",
+        GCP_PROJECT_ID="test-project",
         FIRESTORE_COLLECTION="posts",
     )
 
