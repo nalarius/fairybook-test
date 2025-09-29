@@ -7,9 +7,10 @@ import os
 import random
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from typing import Any, Mapping
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -29,6 +30,14 @@ from gemini_client import (
     generate_title_with_gemini,
     generate_synopsis_with_gemini,
     generate_protagonist_with_gemini,
+)
+from firebase_auth import (
+    AuthSession,
+    FirebaseAuthError,
+    refresh_id_token,
+    sign_in,
+    sign_up,
+    update_profile,
 )
 
 st.set_page_config(page_title="동화책 생성기", page_icon="📖", layout="centered")
@@ -95,10 +104,19 @@ _STATE_SIMPLE_DEFAULTS: dict[str, object] = {
     "topic_input": "",
 
     # Board form state
-    "board_user_id": "",
+    "board_user_alias": None,
     "board_content": "",
     "board_submit_error": None,
     "board_submit_success": None,
+
+    # Authentication state
+    "auth_user": None,
+    "auth_error": None,
+    "auth_form_mode": "signin",
+    "auth_next_action": None,
+
+    # UI helper flags
+    "reset_inputs_pending": False,
 
     # Story generation artefacts
     "story_error": None,
@@ -208,6 +226,245 @@ def ensure_state():
 ensure_state()
 
 
+_TOKEN_REFRESH_LEEWAY = timedelta(minutes=2)
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _store_auth_session(session: AuthSession, *, previous: Mapping[str, Any] | None = None) -> None:
+    prev = dict(previous) if previous else {}
+
+    email = session.email or prev.get("email", "")
+    display_name = session.display_name or prev.get("display_name", "")
+    uid = session.uid or prev.get("uid", "")
+    refresh_token = session.refresh_token or prev.get("refresh_token", "")
+
+    st.session_state["auth_user"] = {
+        "uid": uid,
+        "email": email,
+        "display_name": display_name,
+        "id_token": session.id_token or prev.get("id_token", ""),
+        "refresh_token": refresh_token,
+        "expires_at": session.expires_at.isoformat(),
+        "is_email_verified": session.is_email_verified or bool(prev.get("is_email_verified")),
+    }
+    st.session_state["auth_error"] = None
+
+    if prev.get("uid") != uid:
+        st.session_state["board_content"] = ""
+        st.session_state["board_user_alias"] = display_name or email
+    else:
+        st.session_state.setdefault("board_content", "")
+        st.session_state.setdefault("board_user_alias", display_name or email)
+
+
+def _clear_auth_session() -> None:
+    st.session_state["auth_user"] = None
+    st.session_state["auth_error"] = None
+    st.session_state["auth_form_mode"] = "signin"
+
+
+def _auth_user_from_state() -> dict[str, Any] | None:
+    raw = st.session_state.get("auth_user")
+    if not isinstance(raw, Mapping):
+        return None
+
+    data = dict(raw)
+    expires_at = _parse_iso_datetime(data.get("expires_at"))
+    refresh_token = data.get("refresh_token")
+    id_token = data.get("id_token")
+
+    if not expires_at or not refresh_token or not id_token:
+        _clear_auth_session()
+        return None
+
+    data["expires_at"] = expires_at
+    return data
+
+
+def _format_auth_error(error: Exception) -> str:
+    if isinstance(error, FirebaseAuthError):
+        code = (error.code or "").upper()
+        messages = {
+            "EMAIL_EXISTS": "이미 가입된 이메일이에요. 로그인으로 이동해 주세요.",
+            "INVALID_PASSWORD": "비밀번호가 올바르지 않습니다.",
+            "USER_NOT_FOUND": "등록되지 않은 이메일입니다.",
+            "INVALID_EMAIL": "이메일 주소 형식을 확인해 주세요.",
+            "WEAK_PASSWORD": "비밀번호는 6자 이상이어야 합니다.",
+            "MISSING_PASSWORD": "비밀번호를 입력해 주세요.",
+        }
+        if code in messages:
+            return messages[code]
+        return "Firebase 인증 요청이 실패했어요. 잠시 후 다시 시도해 주세요."
+    if isinstance(error, RuntimeError):
+        return str(error)
+    return "인증을 처리하는 중 오류가 발생했어요."
+
+
+def _ensure_active_auth_session() -> dict[str, Any] | None:
+    user = _auth_user_from_state()
+    if not user:
+        return None
+
+    expires_at: datetime = user["expires_at"]
+    now = datetime.now(timezone.utc)
+    if expires_at <= now:
+        refresh_needed = True
+    else:
+        refresh_needed = (expires_at - now) <= _TOKEN_REFRESH_LEEWAY
+
+    if refresh_needed:
+        refresh_token = user.get("refresh_token")
+        if refresh_token:
+            try:
+                refreshed = refresh_id_token(refresh_token)
+            except FirebaseAuthError as exc:
+                st.session_state["auth_error"] = _format_auth_error(exc)
+                _clear_auth_session()
+                return None
+            except Exception as exc:  # pragma: no cover - defensive
+                st.session_state["auth_error"] = f"세션을 갱신하지 못했어요: {exc}"
+                _clear_auth_session()
+                return None
+            else:
+                _store_auth_session(refreshed, previous=user)
+                user = _auth_user_from_state()
+        else:
+            _clear_auth_session()
+            return None
+
+    return user
+
+
+def _auth_display_name(user: Mapping[str, Any]) -> str:
+    display = str(user.get("display_name") or "").strip()
+    email = str(user.get("email") or "").strip()
+    return display or email or "익명 사용자"
+
+
+def _handle_post_auth_redirect() -> None:
+    next_action = st.session_state.pop("auth_next_action", None)
+    st.session_state["auth_error"] = None
+
+    if next_action == "create":
+        st.session_state["mode"] = "create"
+        st.session_state["step"] = max(1, st.session_state.get("step", 0))
+    elif next_action == "board":
+        st.session_state["mode"] = "board"
+        st.session_state["step"] = 0
+    else:
+        st.session_state["mode"] = None
+        st.session_state["step"] = 0
+
+    st.rerun()
+
+
+def render_auth_gate(home_bg: str | None) -> None:
+    render_app_styles(home_bg, show_home_hero=True)
+    st.title("📖 동화책 생성기")
+    st.subheader("먼저 로그인해 주세요")
+
+    if st.session_state.get("auth_error"):
+        st.error(st.session_state["auth_error"])
+
+    if st.session_state.get("auth_next_action") == "create":
+        st.caption("동화 만들기를 계속하려면 로그인해주세요.")
+    elif st.session_state.get("auth_next_action") == "board":
+        st.caption("게시판을 이용하려면 로그인해주세요.")
+
+    if st.button("← 돌아가기", use_container_width=True):
+        st.session_state["mode"] = None
+        st.session_state["step"] = 0
+        st.session_state["auth_error"] = None
+        st.session_state["auth_next_action"] = None
+        st.rerun()
+
+    mode = st.radio(
+        "계정이 있으신가요?",
+        options=("signin", "signup"),
+        format_func=lambda value: "로그인" if value == "signin" else "회원가입",
+        horizontal=True,
+        key="auth_form_mode",
+    )
+
+    if mode == "signin":
+        with st.form("auth_signin_form", clear_on_submit=True):
+            email = st.text_input(
+                "이메일",
+                key="auth_signin_email",
+                placeholder="예: fairy@storybook.com",
+                max_chars=120,
+            )
+            password = st.text_input(
+                "비밀번호",
+                type="password",
+                key="auth_signin_password",
+            )
+            submitted = st.form_submit_button("로그인", type="primary", use_container_width=True)
+
+        if submitted:
+            email_norm = email.strip()
+            if not email_norm or not password:
+                st.session_state["auth_error"] = "이메일과 비밀번호를 모두 입력해 주세요."
+            else:
+                try:
+                    session = sign_in(email_norm, password)
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["auth_error"] = _format_auth_error(exc)
+                else:
+                    _store_auth_session(session)
+                    _handle_post_auth_redirect()
+
+    else:
+        with st.form("auth_signup_form", clear_on_submit=True):
+            display_name = st.text_input(
+                "표시 이름",
+                key="auth_signup_display_name",
+                placeholder="게시판에 보일 이름",
+                max_chars=40,
+            )
+            email = st.text_input(
+                "이메일",
+                key="auth_signup_email",
+                placeholder="예: fairy@storybook.com",
+                max_chars=120,
+            )
+            password = st.text_input(
+                "비밀번호 (6자 이상)",
+                type="password",
+                key="auth_signup_password",
+            )
+            submitted = st.form_submit_button("가입하기", type="primary", use_container_width=True)
+
+        if submitted:
+            email_norm = email.strip()
+            display_norm = display_name.strip()
+            if not email_norm or not password:
+                st.session_state["auth_error"] = "이메일과 비밀번호를 입력해 주세요."
+            else:
+                try:
+                    session = sign_up(email_norm, password, display_name=display_norm or None)
+                    if display_norm and not session.display_name:
+                        session = update_profile(session.id_token, display_name=display_norm)
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["auth_error"] = _format_auth_error(exc)
+                else:
+                    _store_auth_session(session)
+                    _handle_post_auth_redirect()
+
+    st.caption("로그인에 어려움이 있다면 관리자에게 문의해 주세요.")
+
+
 def render_app_styles(home_bg: str | None, *, show_home_hero: bool = False) -> None:
     """Apply global background styling and optionally render the home hero image."""
     base_css = """
@@ -306,13 +563,16 @@ def format_kst(dt: datetime) -> str:
     return aware.astimezone(KST).strftime("%Y-%m-%d %H:%M")
 
 
-def render_board_page(home_bg: str | None) -> None:
+def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> None:
     """Render the lightweight community board view."""
     init_board_store()
     render_app_styles(home_bg, show_home_hero=False)
 
     st.subheader("💬 동화 작업실 게시판")
     st.caption("동화를 만드는 분들끼리 짧은 메모를 나누는 공간이에요. 친절한 응원과 진행 상황을 가볍게 남겨보세요.")
+
+    default_alias = st.session_state.get("board_user_alias") or _auth_display_name(auth_user)
+    st.session_state.setdefault("board_user_alias", default_alias)
 
     if st.button("← 홈으로 돌아가기", use_container_width=True):
         st.session_state["mode"] = None
@@ -325,10 +585,10 @@ def render_board_page(home_bg: str | None) -> None:
     st.markdown("---")
 
     with st.form("board_form", clear_on_submit=False):
-        user_id_value = st.text_input(
-            "사용자 ID",
-            value=st.session_state.get("board_user_id", ""),
-            max_chars=24,
+        alias_value = st.text_input(
+            "게시판에서 표시할 이름",
+            value=st.session_state.get("board_user_alias", default_alias),
+            max_chars=40,
             placeholder="예: story_maker",
         )
         content_value = st.text_area(
@@ -340,13 +600,13 @@ def render_board_page(home_bg: str | None) -> None:
         )
         submitted = st.form_submit_button("메시지 남기기", type="primary", use_container_width=True)
 
-    st.session_state["board_user_id"] = user_id_value
+    st.session_state["board_user_alias"] = alias_value
     st.session_state["board_content"] = content_value
 
     if submitted:
         try:
             client_ip = get_client_ip()
-            add_post(user_id=user_id_value, content=content_value, client_ip=client_ip)
+            add_post(user_id=alias_value or _auth_display_name(auth_user), content=content_value, client_ip=client_ip)
         except ValueError as exc:
             st.session_state["board_submit_error"] = str(exc)
         except Exception:
@@ -506,6 +766,13 @@ def reset_all_state():
     st.session_state["mode"] = None
     st.session_state["step"] = 0
 
+
+def logout_user() -> None:
+    _clear_auth_session()
+    reset_all_state()
+    st.session_state["board_user_alias"] = None
+    st.session_state["board_content"] = ""
+    st.session_state["auth_next_action"] = None
 
 
 def clear_stages_from(index: int):
@@ -747,12 +1014,54 @@ def export_story_to_html(
     return ExportResult(str(export_path), gcs_object=gcs_object, gcs_url=gcs_url)
 
 # ─────────────────────────────────────────────────────────────────────
-# 헤더/진행
+# 헤더/인증/진행
 # ─────────────────────────────────────────────────────────────────────
-st.title("📖 동화책 생성기")
-progress_placeholder = st.empty()
+home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
+auth_user = _ensure_active_auth_session()
 mode = st.session_state.get("mode")
 current_step = st.session_state["step"]
+
+if mode in {"create", "board"} and not auth_user:
+    st.session_state["auth_next_action"] = mode
+    st.session_state["mode"] = "auth"
+    st.rerun()
+
+if mode == "auth":
+    render_auth_gate(home_bg)
+    st.stop()
+
+st.title("📖 동화책 생성기")
+header_cols = st.columns([6, 1])
+
+with header_cols[0]:
+    if auth_user:
+        st.caption(f"👋 **{_auth_display_name(auth_user)}**님 반가워요.")
+    else:
+        st.caption("로그인하면 동화 만들기와 게시판을 이용할 수 있어요.")
+
+with header_cols[1]:
+    menu = st.popover("⚙️", use_container_width=True)
+    with menu:
+        st.markdown("#### 메뉴")
+        if auth_user:
+            st.write(f"현재 사용자: **{_auth_display_name(auth_user)}**")
+            if st.button("로그아웃", use_container_width=True):
+                logout_user()
+                st.rerun()
+            st.button("설정 (준비중)", disabled=True, use_container_width=True)
+            st.caption("설정 항목은 준비 중이에요.")
+        else:
+            if st.button("로그인 / 회원가입", use_container_width=True):
+                st.session_state["auth_next_action"] = None
+                st.session_state["mode"] = "auth"
+                st.session_state["auth_form_mode"] = "signin"
+                st.session_state["auth_error"] = None
+                st.rerun()
+            st.button("설정 (로그인 필요)", disabled=True, use_container_width=True)
+            st.caption("로그인하면 더 많은 기능을 사용할 수 있어요.")
+
+progress_placeholder = st.empty()
+
 
 if mode == "create" and current_step > 0:
     total_phases = len(STORY_PHASES)
@@ -788,9 +1097,8 @@ if mode != "board":
 # ─────────────────────────────────────────────────────────────────────
 # STEP 1 — 나이대/주제 입력 (form으로 커밋 시점 고정, 확정 키와 분리)
 # ─────────────────────────────────────────────────────────────────────
-home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
 if mode == "board":
-    render_board_page(home_bg)
+    render_board_page(home_bg, auth_user=auth_user)
     st.stop()
 
 render_app_styles(home_bg, show_home_hero=current_step == 0)
@@ -808,14 +1116,18 @@ if current_step == 0:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✏️ 동화 만들기", use_container_width=True):
-            reset_all_state()
-            ensure_state()
-            st.session_state["mode"] = "create"
-            st.session_state["step"] = 1
+            if auth_user:
+                reset_all_state()
+                ensure_state()
+                st.session_state["mode"] = "create"
+                st.session_state["step"] = 1
+            else:
+                st.session_state["auth_next_action"] = "create"
+                st.session_state["mode"] = "auth"
             st.rerun()
     with c2:
         view_clicked = st.button(
-            "📂 저장본 보기",
+            "📖 동화책 읽기",
             use_container_width=True,
             disabled=not exports_available,
         )
@@ -825,10 +1137,14 @@ if current_step == 0:
 
     board_clicked = st.button("💬 동화 작업실 게시판", use_container_width=True)
     if board_clicked:
-        st.session_state["mode"] = "board"
-        st.session_state["step"] = 0
-        st.session_state["board_submit_error"] = None
-        st.session_state["board_submit_success"] = None
+        if auth_user:
+            st.session_state["mode"] = "board"
+            st.session_state["step"] = 0
+            st.session_state["board_submit_error"] = None
+            st.session_state["board_submit_success"] = None
+        else:
+            st.session_state["auth_next_action"] = "board"
+            st.session_state["mode"] = "auth"
         st.rerun()
 
     if not exports_available:
@@ -836,6 +1152,10 @@ if current_step == 0:
 
 elif current_step == 1:
     st.subheader("1단계. 나이대와 이야기 아이디어를 입력하세요")
+
+    if st.session_state.pop("reset_inputs_pending", False):
+        st.session_state["age_input"] = "6-8"
+        st.session_state["topic_input"] = ""
 
     # 폼 제출 전까지는 age/topic을 건드리지 않음
     with st.form("step1_form", clear_on_submit=False):
@@ -858,8 +1178,8 @@ elif current_step == 1:
 
     if do_reset:
         # 임시 위젯 값만 초기화. 확정값(age/topic)은 건드리지 않음.
-        st.session_state["age_input"] = "6-8"
-        st.session_state["topic_input"] = ""
+        st.session_state["reset_inputs_pending"] = True
+        st.rerun()
 
     if go_next:
         # 이 시점에만 확정 키로 복사
