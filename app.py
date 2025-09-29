@@ -875,8 +875,10 @@ def _build_story_html_document(
     story_type: str,
     stages: list[dict],
     cover: dict | None = None,
+    author: str | None = None,
 ) -> str:
     escaped_title = html.escape(title)
+    escaped_author = html.escape(author) if author else ""
 
     cover_section = ""
     if cover and cover.get("image_data_uri"):
@@ -913,6 +915,10 @@ def _build_story_html_document(
 
     stages_html = "".join(stage_sections)
 
+    author_block = (
+        f"        <p class=\"meta\">작성자: {escaped_author}</p>\n" if escaped_author else ""
+    )
+
     return (
         "<!DOCTYPE html>\n"
         "<html lang=\"ko\">\n"
@@ -923,6 +929,7 @@ def _build_story_html_document(
         "        body { font-family: 'Noto Sans KR', sans-serif; margin: 2rem; background: #faf7f2; color: #2c2c2c; }\n"
         "        header { margin-bottom: 2.5rem; }\n"
         "        h1 { font-size: 2rem; margin-bottom: 0.5rem; }\n"
+        "        .meta { color: #555; font-size: 0.95rem; margin-bottom: 0.5rem; }\n"
         "        .cover { margin-bottom: 3rem; }\n"
         "        .stage { margin-bottom: 3rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(0,0,0,0.08); }\n"
         "        .stage:last-of-type { border-bottom: none; }\n"
@@ -935,6 +942,7 @@ def _build_story_html_document(
         "<body>\n"
         "    <header>\n"
         f"        <h1>{escaped_title}</h1>\n"
+        f"{author_block}"
         "    </header>\n"
         f"{cover_section}{stages_html}"
         "</body>\n"
@@ -957,6 +965,7 @@ def export_story_to_html(
     story_type: str,
     stages: list[dict],
     cover: dict | None = None,
+    author: str | None = None,
 ) -> ExportResult:
     """다단계 이야기와 삽화를 하나의 HTML 파일로 저장하고 업로드한다."""
     HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
@@ -1001,6 +1010,7 @@ def export_story_to_html(
         story_type=story_type,
         stages=normalized_stages,
         cover=cover_section,
+        author=(author or ""),
     )
 
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
@@ -1349,7 +1359,7 @@ elif current_step == 2:
         label="",
         images=type_images,
         captions=type_captions,
-        width='stretch',
+        use_container_width=True,
         return_value="index",
         key="rand8_picker",
     )
@@ -1583,7 +1593,7 @@ elif current_step == 4 and mode == "create":
         label="",
         images=card_images,
         captions=card_captions,
-        width='stretch',
+        use_container_width=True,
         return_value="index",
         key="story_card_picker",
     )
@@ -2027,6 +2037,7 @@ elif current_step == 6 and mode == "create":
                 story_type=story_type_name,
                 stages=export_ready_stages,
                 cover=cover_payload,
+                author=_auth_display_name(auth_user) if auth_user else None,
             )
             st.session_state["story_export_path"] = export_result.local_path
             st.session_state["story_export_signature"] = signature
