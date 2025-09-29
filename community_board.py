@@ -30,7 +30,12 @@ CREATE TABLE IF NOT EXISTS board_posts (
 _STORY_STORAGE_MODE = (os.getenv("STORY_STORAGE_MODE") or "remote").strip().lower()
 USE_REMOTE_BOARD = _STORY_STORAGE_MODE in {"remote", "gcs"}
 
-FIRESTORE_PROJECT_ID = (os.getenv("FIRESTORE_PROJECT_ID") or "").strip()
+_PROJECT_ID_RAW = (
+    os.getenv("GCP_PROJECT_ID")
+    or os.getenv("FIRESTORE_PROJECT_ID")
+    or ""
+)
+GCP_PROJECT_ID = _PROJECT_ID_RAW.strip()
 _FIRESTORE_COLLECTION_RAW = (os.getenv("FIRESTORE_COLLECTION") or "posts").strip()
 FIRESTORE_COLLECTION = _FIRESTORE_COLLECTION_RAW or "posts"
 
@@ -60,14 +65,14 @@ def _ensure_remote_ready() -> None:
     if firestore is None:
         raise RuntimeError("google-cloud-firestore must be installed for remote board storage")
 
-    if FIRESTORE_PROJECT_ID:
+    if GCP_PROJECT_ID:
         return
 
     credentials = get_service_account_credentials()
     project_id = getattr(credentials, "project_id", "") if credentials else ""
     if not project_id:
         raise RuntimeError(
-            "FIRESTORE_PROJECT_ID must be set or provided via service-account credentials for the board."
+            "GCP_PROJECT_ID must be set or provided via service-account credentials for the board."
         )
 
 
@@ -79,8 +84,8 @@ def _get_firestore_client():
     if credentials is not None:
         client_kwargs["credentials"] = credentials
 
-    if FIRESTORE_PROJECT_ID:
-        client_kwargs["project"] = FIRESTORE_PROJECT_ID
+    if GCP_PROJECT_ID:
+        client_kwargs["project"] = GCP_PROJECT_ID
     elif credentials is not None:
         project_id = getattr(credentials, "project_id", "")
         if project_id:

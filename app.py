@@ -7,9 +7,10 @@ import os
 import random
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from typing import Any, Mapping
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -30,6 +31,15 @@ from gemini_client import (
     generate_synopsis_with_gemini,
     generate_protagonist_with_gemini,
 )
+from firebase_auth import (
+    AuthSession,
+    FirebaseAuthError,
+    refresh_id_token,
+    sign_in,
+    sign_up,
+    update_profile,
+)
+from story_library import StoryRecord, init_story_library, list_story_records, record_story_export
 
 st.set_page_config(page_title="동화책 생성기", page_icon="📖", layout="centered")
 
@@ -63,6 +73,11 @@ KST = ZoneInfo("Asia/Seoul")
 BOARD_POST_LIMIT = 50
 
 HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
+STORY_LIBRARY_INIT_ERROR: str | None = None
+try:
+    init_story_library()
+except Exception as exc:  # pragma: no cover - initialization failure surfaced later
+    STORY_LIBRARY_INIT_ERROR = str(exc)
 
 
 def _load_json_entries_from_file(path: str | Path, key: str) -> list[dict]:
@@ -95,10 +110,19 @@ _STATE_SIMPLE_DEFAULTS: dict[str, object] = {
     "topic_input": "",
 
     # Board form state
-    "board_user_id": "",
+    "board_user_alias": None,
     "board_content": "",
     "board_submit_error": None,
     "board_submit_success": None,
+
+    # Authentication state
+    "auth_user": None,
+    "auth_error": None,
+    "auth_form_mode": "signin",
+    "auth_next_action": None,
+
+    # UI helper flags
+    "reset_inputs_pending": False,
 
     # Story generation artefacts
     "story_error": None,
@@ -208,6 +232,245 @@ def ensure_state():
 ensure_state()
 
 
+_TOKEN_REFRESH_LEEWAY = timedelta(minutes=2)
+
+
+def _parse_iso_datetime(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        dt = datetime.fromisoformat(str(value))
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
+def _store_auth_session(session: AuthSession, *, previous: Mapping[str, Any] | None = None) -> None:
+    prev = dict(previous) if previous else {}
+
+    email = session.email or prev.get("email", "")
+    display_name = session.display_name or prev.get("display_name", "")
+    uid = session.uid or prev.get("uid", "")
+    refresh_token = session.refresh_token or prev.get("refresh_token", "")
+
+    st.session_state["auth_user"] = {
+        "uid": uid,
+        "email": email,
+        "display_name": display_name,
+        "id_token": session.id_token or prev.get("id_token", ""),
+        "refresh_token": refresh_token,
+        "expires_at": session.expires_at.isoformat(),
+        "is_email_verified": session.is_email_verified or bool(prev.get("is_email_verified")),
+    }
+    st.session_state["auth_error"] = None
+
+    if prev.get("uid") != uid:
+        st.session_state["board_content"] = ""
+        st.session_state["board_user_alias"] = display_name or email
+    else:
+        st.session_state.setdefault("board_content", "")
+        st.session_state.setdefault("board_user_alias", display_name or email)
+
+
+def _clear_auth_session() -> None:
+    st.session_state["auth_user"] = None
+    st.session_state["auth_error"] = None
+    st.session_state["auth_form_mode"] = "signin"
+
+
+def _auth_user_from_state() -> dict[str, Any] | None:
+    raw = st.session_state.get("auth_user")
+    if not isinstance(raw, Mapping):
+        return None
+
+    data = dict(raw)
+    expires_at = _parse_iso_datetime(data.get("expires_at"))
+    refresh_token = data.get("refresh_token")
+    id_token = data.get("id_token")
+
+    if not expires_at or not refresh_token or not id_token:
+        _clear_auth_session()
+        return None
+
+    data["expires_at"] = expires_at
+    return data
+
+
+def _format_auth_error(error: Exception) -> str:
+    if isinstance(error, FirebaseAuthError):
+        code = (error.code or "").upper()
+        messages = {
+            "EMAIL_EXISTS": "이미 가입된 이메일이에요. 로그인으로 이동해 주세요.",
+            "INVALID_PASSWORD": "비밀번호가 올바르지 않습니다.",
+            "USER_NOT_FOUND": "등록되지 않은 이메일입니다.",
+            "INVALID_EMAIL": "이메일 주소 형식을 확인해 주세요.",
+            "WEAK_PASSWORD": "비밀번호는 6자 이상이어야 합니다.",
+            "MISSING_PASSWORD": "비밀번호를 입력해 주세요.",
+        }
+        if code in messages:
+            return messages[code]
+        return "Firebase 인증 요청이 실패했어요. 잠시 후 다시 시도해 주세요."
+    if isinstance(error, RuntimeError):
+        return str(error)
+    return "인증을 처리하는 중 오류가 발생했어요."
+
+
+def _ensure_active_auth_session() -> dict[str, Any] | None:
+    user = _auth_user_from_state()
+    if not user:
+        return None
+
+    expires_at: datetime = user["expires_at"]
+    now = datetime.now(timezone.utc)
+    if expires_at <= now:
+        refresh_needed = True
+    else:
+        refresh_needed = (expires_at - now) <= _TOKEN_REFRESH_LEEWAY
+
+    if refresh_needed:
+        refresh_token = user.get("refresh_token")
+        if refresh_token:
+            try:
+                refreshed = refresh_id_token(refresh_token)
+            except FirebaseAuthError as exc:
+                st.session_state["auth_error"] = _format_auth_error(exc)
+                _clear_auth_session()
+                return None
+            except Exception as exc:  # pragma: no cover - defensive
+                st.session_state["auth_error"] = f"세션을 갱신하지 못했어요: {exc}"
+                _clear_auth_session()
+                return None
+            else:
+                _store_auth_session(refreshed, previous=user)
+                user = _auth_user_from_state()
+        else:
+            _clear_auth_session()
+            return None
+
+    return user
+
+
+def _auth_display_name(user: Mapping[str, Any]) -> str:
+    display = str(user.get("display_name") or "").strip()
+    email = str(user.get("email") or "").strip()
+    return display or email or "익명 사용자"
+
+
+def _handle_post_auth_redirect() -> None:
+    next_action = st.session_state.pop("auth_next_action", None)
+    st.session_state["auth_error"] = None
+
+    if next_action == "create":
+        st.session_state["mode"] = "create"
+        st.session_state["step"] = max(1, st.session_state.get("step", 0))
+    elif next_action == "board":
+        st.session_state["mode"] = "board"
+        st.session_state["step"] = 0
+    else:
+        st.session_state["mode"] = None
+        st.session_state["step"] = 0
+
+    st.rerun()
+
+
+def render_auth_gate(home_bg: str | None) -> None:
+    render_app_styles(home_bg, show_home_hero=True)
+    st.title("📖 동화책 생성기")
+    st.subheader("먼저 로그인해 주세요")
+
+    if st.session_state.get("auth_error"):
+        st.error(st.session_state["auth_error"])
+
+    if st.session_state.get("auth_next_action") == "create":
+        st.caption("동화 만들기를 계속하려면 로그인해주세요.")
+    elif st.session_state.get("auth_next_action") == "board":
+        st.caption("게시판을 이용하려면 로그인해주세요.")
+
+    if st.button("← 돌아가기", width='stretch'):
+        st.session_state["mode"] = None
+        st.session_state["step"] = 0
+        st.session_state["auth_error"] = None
+        st.session_state["auth_next_action"] = None
+        st.rerun()
+
+    mode = st.radio(
+        "계정이 있으신가요?",
+        options=("signin", "signup"),
+        format_func=lambda value: "로그인" if value == "signin" else "회원가입",
+        horizontal=True,
+        key="auth_form_mode",
+    )
+
+    if mode == "signin":
+        with st.form("auth_signin_form", clear_on_submit=True):
+            email = st.text_input(
+                "이메일",
+                key="auth_signin_email",
+                placeholder="예: fairy@storybook.com",
+                max_chars=120,
+            )
+            password = st.text_input(
+                "비밀번호",
+                type="password",
+                key="auth_signin_password",
+            )
+            submitted = st.form_submit_button("로그인", type="primary", width='stretch')
+
+        if submitted:
+            email_norm = email.strip()
+            if not email_norm or not password:
+                st.session_state["auth_error"] = "이메일과 비밀번호를 모두 입력해 주세요."
+            else:
+                try:
+                    session = sign_in(email_norm, password)
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["auth_error"] = _format_auth_error(exc)
+                else:
+                    _store_auth_session(session)
+                    _handle_post_auth_redirect()
+
+    else:
+        with st.form("auth_signup_form", clear_on_submit=True):
+            display_name = st.text_input(
+                "표시 이름",
+                key="auth_signup_display_name",
+                placeholder="게시판에 보일 이름",
+                max_chars=40,
+            )
+            email = st.text_input(
+                "이메일",
+                key="auth_signup_email",
+                placeholder="예: fairy@storybook.com",
+                max_chars=120,
+            )
+            password = st.text_input(
+                "비밀번호 (6자 이상)",
+                type="password",
+                key="auth_signup_password",
+            )
+            submitted = st.form_submit_button("가입하기", type="primary", width='stretch')
+
+        if submitted:
+            email_norm = email.strip()
+            display_norm = display_name.strip()
+            if not email_norm or not password:
+                st.session_state["auth_error"] = "이메일과 비밀번호를 입력해 주세요."
+            else:
+                try:
+                    session = sign_up(email_norm, password, display_name=display_norm or None)
+                    if display_norm and not session.display_name:
+                        session = update_profile(session.id_token, display_name=display_norm)
+                except Exception as exc:  # noqa: BLE001
+                    st.session_state["auth_error"] = _format_auth_error(exc)
+                else:
+                    _store_auth_session(session)
+                    _handle_post_auth_redirect()
+
+    st.caption("로그인에 어려움이 있다면 관리자에게 문의해 주세요.")
+
+
 def render_app_styles(home_bg: str | None, *, show_home_hero: bool = False) -> None:
     """Apply global background styling and optionally render the home hero image."""
     base_css = """
@@ -306,7 +569,7 @@ def format_kst(dt: datetime) -> str:
     return aware.astimezone(KST).strftime("%Y-%m-%d %H:%M")
 
 
-def render_board_page(home_bg: str | None) -> None:
+def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> None:
     """Render the lightweight community board view."""
     init_board_store()
     render_app_styles(home_bg, show_home_hero=False)
@@ -314,7 +577,10 @@ def render_board_page(home_bg: str | None) -> None:
     st.subheader("💬 동화 작업실 게시판")
     st.caption("동화를 만드는 분들끼리 짧은 메모를 나누는 공간이에요. 친절한 응원과 진행 상황을 가볍게 남겨보세요.")
 
-    if st.button("← 홈으로 돌아가기", use_container_width=True):
+    default_alias = st.session_state.get("board_user_alias") or _auth_display_name(auth_user)
+    st.session_state.setdefault("board_user_alias", default_alias)
+
+    if st.button("← 홈으로 돌아가기", width='stretch'):
         st.session_state["mode"] = None
         st.session_state["step"] = 0
         st.session_state["board_submit_error"] = None
@@ -325,10 +591,10 @@ def render_board_page(home_bg: str | None) -> None:
     st.markdown("---")
 
     with st.form("board_form", clear_on_submit=False):
-        user_id_value = st.text_input(
-            "사용자 ID",
-            value=st.session_state.get("board_user_id", ""),
-            max_chars=24,
+        alias_value = st.text_input(
+            "게시판에서 표시할 이름",
+            value=st.session_state.get("board_user_alias", default_alias),
+            max_chars=40,
             placeholder="예: story_maker",
         )
         content_value = st.text_area(
@@ -338,15 +604,15 @@ def render_board_page(home_bg: str | None) -> None:
             max_chars=1000,
             placeholder="동화 작업 중 느낀 점이나 부탁할 내용을 자유롭게 남겨주세요.",
         )
-        submitted = st.form_submit_button("메시지 남기기", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("메시지 남기기", type="primary", width='stretch')
 
-    st.session_state["board_user_id"] = user_id_value
+    st.session_state["board_user_alias"] = alias_value
     st.session_state["board_content"] = content_value
 
     if submitted:
         try:
             client_ip = get_client_ip()
-            add_post(user_id=user_id_value, content=content_value, client_ip=client_ip)
+            add_post(user_id=alias_value or _auth_display_name(auth_user), content=content_value, client_ip=client_ip)
         except ValueError as exc:
             st.session_state["board_submit_error"] = str(exc)
         except Exception:
@@ -506,6 +772,13 @@ def reset_all_state():
     st.session_state["mode"] = None
     st.session_state["step"] = 0
 
+
+def logout_user() -> None:
+    _clear_auth_session()
+    reset_all_state()
+    st.session_state["board_user_alias"] = None
+    st.session_state["board_content"] = ""
+    st.session_state["auth_next_action"] = None
 
 
 def clear_stages_from(index: int):
@@ -747,12 +1020,54 @@ def export_story_to_html(
     return ExportResult(str(export_path), gcs_object=gcs_object, gcs_url=gcs_url)
 
 # ─────────────────────────────────────────────────────────────────────
-# 헤더/진행
+# 헤더/인증/진행
 # ─────────────────────────────────────────────────────────────────────
-st.title("📖 동화책 생성기")
-progress_placeholder = st.empty()
+home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
+auth_user = _ensure_active_auth_session()
 mode = st.session_state.get("mode")
 current_step = st.session_state["step"]
+
+if mode in {"create", "board"} and not auth_user:
+    st.session_state["auth_next_action"] = mode
+    st.session_state["mode"] = "auth"
+    st.rerun()
+
+if mode == "auth":
+    render_auth_gate(home_bg)
+    st.stop()
+
+st.title("📖 동화책 생성기")
+header_cols = st.columns([6, 1])
+
+with header_cols[0]:
+    if auth_user:
+        st.caption(f"👋 **{_auth_display_name(auth_user)}**님 반가워요.")
+    else:
+        st.caption("로그인하면 동화 만들기와 게시판을 이용할 수 있어요.")
+
+with header_cols[1]:
+    menu = st.popover("⚙️", width='stretch')
+    with menu:
+        st.markdown("#### 메뉴")
+        if auth_user:
+            st.write(f"현재 사용자: **{_auth_display_name(auth_user)}**")
+            if st.button("로그아웃", width='stretch'):
+                logout_user()
+                st.rerun()
+            st.button("설정 (준비중)", disabled=True, width='stretch')
+            st.caption("설정 항목은 준비 중이에요.")
+        else:
+            if st.button("로그인 / 회원가입", width='stretch'):
+                st.session_state["auth_next_action"] = None
+                st.session_state["mode"] = "auth"
+                st.session_state["auth_form_mode"] = "signin"
+                st.session_state["auth_error"] = None
+                st.rerun()
+            st.button("설정 (로그인 필요)", disabled=True, width='stretch')
+            st.caption("로그인하면 더 많은 기능을 사용할 수 있어요.")
+
+progress_placeholder = st.empty()
+
 
 if mode == "create" and current_step > 0:
     total_phases = len(STORY_PHASES)
@@ -788,54 +1103,63 @@ if mode != "board":
 # ─────────────────────────────────────────────────────────────────────
 # STEP 1 — 나이대/주제 입력 (form으로 커밋 시점 고정, 확정 키와 분리)
 # ─────────────────────────────────────────────────────────────────────
-home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
 if mode == "board":
-    render_board_page(home_bg)
+    render_board_page(home_bg, auth_user=auth_user)
     st.stop()
 
 render_app_styles(home_bg, show_home_hero=current_step == 0)
 
 if current_step == 0:
     st.subheader("어떤 작업을 하시겠어요?")
-    if USE_REMOTE_EXPORTS:
-        remote_exports_available = False
-        if is_gcs_available():
-            remote_exports_available = bool(list_gcs_exports())
-        exports_available = remote_exports_available
-    else:
-        exports_available = bool(list_html_exports())
+    try:
+        exports_available = bool(list_story_records(limit=1))
+    except Exception:
+        if USE_REMOTE_EXPORTS and is_gcs_available():
+            exports_available = bool(list_gcs_exports())
+        else:
+            exports_available = bool(list_html_exports())
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("✏️ 동화 만들기", use_container_width=True):
-            reset_all_state()
-            ensure_state()
-            st.session_state["mode"] = "create"
-            st.session_state["step"] = 1
+        if st.button("✏️ 동화 만들기", width='stretch'):
+            if auth_user:
+                reset_all_state()
+                ensure_state()
+                st.session_state["mode"] = "create"
+                st.session_state["step"] = 1
+            else:
+                st.session_state["auth_next_action"] = "create"
+                st.session_state["mode"] = "auth"
             st.rerun()
     with c2:
         view_clicked = st.button(
-            "📂 저장본 보기",
-            use_container_width=True,
-            disabled=not exports_available,
+            "📖 동화책 읽기",
+            width='stretch',
+            disabled=False,
         )
         if view_clicked:
             st.session_state["mode"] = "view"
             st.session_state["step"] = 5
 
-    board_clicked = st.button("💬 동화 작업실 게시판", use_container_width=True)
+    board_clicked = st.button("💬 동화 작업실 게시판", width='stretch')
     if board_clicked:
-        st.session_state["mode"] = "board"
-        st.session_state["step"] = 0
-        st.session_state["board_submit_error"] = None
-        st.session_state["board_submit_success"] = None
+        if auth_user:
+            st.session_state["mode"] = "board"
+            st.session_state["step"] = 0
+            st.session_state["board_submit_error"] = None
+            st.session_state["board_submit_success"] = None
+        else:
+            st.session_state["auth_next_action"] = "board"
+            st.session_state["mode"] = "auth"
         st.rerun()
 
-    if not exports_available:
-        st.caption("저장된 동화가 아직 없습니다. 먼저 동화를 만들어 저장해 주세요.")
 
 elif current_step == 1:
     st.subheader("1단계. 나이대와 이야기 아이디어를 입력하세요")
+
+    if st.session_state.pop("reset_inputs_pending", False):
+        st.session_state["age_input"] = "6-8"
+        st.session_state["topic_input"] = ""
 
     # 폼 제출 전까지는 age/topic을 건드리지 않음
     with st.form("step1_form", clear_on_submit=False):
@@ -853,13 +1177,13 @@ elif current_step == 1:
             key="topic_input",  # 위젯은 topic_input에만 바인딩
         )
         c1, c2 = st.columns(2)
-        go_next = c1.form_submit_button("다음 단계로 →", use_container_width=True)
-        do_reset = c2.form_submit_button("입력 초기화", use_container_width=True)
+        go_next = c1.form_submit_button("다음 단계로 →", width='stretch')
+        do_reset = c2.form_submit_button("입력 초기화", width='stretch')
 
     if do_reset:
         # 임시 위젯 값만 초기화. 확정값(age/topic)은 건드리지 않음.
-        st.session_state["age_input"] = "6-8"
-        st.session_state["topic_input"] = ""
+        st.session_state["reset_inputs_pending"] = True
+        st.rerun()
 
     if go_next:
         # 이 시점에만 확정 키로 복사
@@ -877,7 +1201,7 @@ elif current_step == 2:
     rand8 = st.session_state["rand8"]
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -903,7 +1227,7 @@ elif current_step == 2:
         def show_error_and_stop(message: str):
             st.error(message)
             st.session_state["is_generating_all"] = False
-            if st.button("다시 시도하기", use_container_width=True):
+            if st.button("다시 시도하기", width='stretch'):
                 reset_story_session()
                 st.rerun()
             st.stop()
@@ -1025,7 +1349,7 @@ elif current_step == 2:
         label="",
         images=type_images,
         captions=type_captions,
-        use_container_width=True,
+        width='stretch',
         return_value="index",
         key="rand8_picker",
     )
@@ -1042,7 +1366,7 @@ elif current_step == 2:
 
     st.markdown("---")
 
-    if st.button("✨ 제목 만들기", type="primary", use_container_width=True):
+    if st.button("✨ 제목 만들기", type="primary", width='stretch'):
         reset_story_session()
         st.session_state["is_generating_all"] = True
         st.rerun()
@@ -1051,20 +1375,20 @@ elif current_step == 2:
     st.markdown("---")
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 이야기 아이디어 다시 입력", use_container_width=True):
+        if st.button("← 이야기 아이디어 다시 입력", width='stretch'):
             reset_story_session()
             go_step(1)
             st.rerun()
             st.stop()
     with nav_col2:
-        if st.button("새로운 스토리 유형 뽑기", use_container_width=True):
+        if st.button("새로운 스토리 유형 뽑기", width='stretch'):
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types))) if story_types else []
             st.session_state["selected_type_idx"] = 0
             reset_story_session()
             st.rerun()
             st.stop()
     with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1078,7 +1402,7 @@ elif current_step == 3:
     title_val = st.session_state.get("story_title")
     if not title_val:
         st.warning("제목을 먼저 생성해야 합니다.")
-        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+        if st.button("제목 만들기 화면으로 돌아가기", width='stretch'):
             go_step(2)
             st.rerun()
             st.stop()
@@ -1098,7 +1422,7 @@ elif current_step == 3:
         caption = "표지 일러스트"
         if cover_style and cover_style.get("name"):
             caption += f" · {cover_style.get('name')} 스타일"
-        st.image(cover_image, caption=caption, use_container_width=True)
+        st.image(cover_image, caption=caption, width='stretch')
     elif cover_error:
         st.warning(f"표지 일러스트 생성 실패: {cover_error}")
     else:
@@ -1125,7 +1449,7 @@ elif current_step == 3:
         active_style = style_choice or cover_style
         if active_style and active_style.get("name"):
             caption += f" · {active_style.get('name')} 스타일"
-        st.image(character_image, caption=caption, use_container_width=True)
+        st.image(character_image, caption=caption, width='stretch')
     elif character_error:
         st.warning(f"설정화 생성 실패: {character_error}")
     else:
@@ -1133,21 +1457,21 @@ elif current_step == 3:
     
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("← 제목 다시 만들기", use_container_width=True):
+        if st.button("← 제목 다시 만들기", width='stretch'):
             reset_story_session()
             go_step(2)
             st.rerun()
             st.stop()
 
     with c2:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
 
     with c3:
         continue_disabled = not title_val
-        if st.button("계속해서 이야기 만들기 →", type="primary", use_container_width=True, disabled=continue_disabled):
+        if st.button("계속해서 이야기 만들기 →", type="primary", width='stretch', disabled=continue_disabled):
             clear_stages_from(0)
             st.session_state["current_stage_idx"] = 0
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
@@ -1169,7 +1493,7 @@ elif current_step == 4 and mode == "create":
     title_val = st.session_state.get("story_title")
     if not title_val:
         st.warning("제목을 먼저 생성해야 합니다.")
-        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+        if st.button("제목 만들기 화면으로 돌아가기", width='stretch'):
             go_step(2)
             st.rerun()
             st.stop()
@@ -1181,7 +1505,7 @@ elif current_step == 4 and mode == "create":
     if not available_cards:
         missing_msg = "ending.json" if is_final_stage else "story.json"
         st.error(f"{missing_msg}에서 사용할 수 있는 이야기 카드를 찾지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1190,7 +1514,7 @@ elif current_step == 4 and mode == "create":
     rand8 = st.session_state.get("rand8") or []
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1231,7 +1555,7 @@ elif current_step == 4 and mode == "create":
         if sample_size <= 0:
             source_label = "ending.json" if is_final_stage else "story.json"
             st.error(f"카드가 부족합니다. {source_label}을 확인해주세요.")
-            if st.button("처음으로 돌아가기", use_container_width=True):
+            if st.button("처음으로 돌아가기", width='stretch'):
                 reset_all_state()
                 st.rerun()
                 st.stop()
@@ -1259,7 +1583,7 @@ elif current_step == 4 and mode == "create":
         label="",
         images=card_images,
         captions=card_captions,
-        use_container_width=True,
+        width='stretch',
         return_value="index",
         key="story_card_picker",
     )
@@ -1278,7 +1602,7 @@ elif current_step == 4 and mode == "create":
     if existing_stage:
         st.warning("이미 완성된 단계가 있어 새로 만들면 덮어씁니다.")
 
-    if st.button("이 단계 이야기 만들기", type="primary", use_container_width=True):
+    if st.button("이 단계 이야기 만들기", type="primary", width='stretch'):
         reset_story_session(keep_title=True, keep_cards=True, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
         st.session_state["story_prompt"] = None
         st.session_state["is_generating_story"] = True
@@ -1288,7 +1612,7 @@ elif current_step == 4 and mode == "create":
 
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 제목 다시 만들기", use_container_width=True):
+        if st.button("← 제목 다시 만들기", width='stretch'):
             clear_stages_from(0)
             st.session_state["current_stage_idx"] = 0
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
@@ -1296,12 +1620,12 @@ elif current_step == 4 and mode == "create":
             st.rerun()
             st.stop()
     with nav_col2:
-        if st.button("새로운 스토리 카드 뽑기", use_container_width=True):
+        if st.button("새로운 스토리 카드 뽑기", width='stretch'):
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.rerun()
             st.stop()
     with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1322,7 +1646,7 @@ elif current_step == 5 and mode == "create":
     title_val = st.session_state.get("story_title")
     if not title_val:
         st.warning("제목을 먼저 생성해야 합니다.")
-        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+        if st.button("제목 만들기 화면으로 돌아가기", width='stretch'):
             go_step(2)
             st.rerun()
             st.stop()
@@ -1331,7 +1655,7 @@ elif current_step == 5 and mode == "create":
     cards = st.session_state.get("story_cards_rand4")
     if not cards:
         st.warning("이야기 카드를 다시 선택해주세요.")
-        if st.button("이야기 카드 화면으로", use_container_width=True):
+        if st.button("이야기 카드 화면으로", width='stretch'):
             go_step(4)
             st.rerun()
             st.stop()
@@ -1340,7 +1664,7 @@ elif current_step == 5 and mode == "create":
     rand8 = st.session_state.get("rand8") or []
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1501,7 +1825,7 @@ elif current_step == 5 and mode == "create":
 
     if not story_data and not story_error:
         st.info("이야기 카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요.")
-        if st.button("이야기 카드 화면으로", use_container_width=True):
+        if st.button("이야기 카드 화면으로", width='stretch'):
             go_step(4)
             st.rerun()
             st.stop()
@@ -1511,20 +1835,20 @@ elif current_step == 5 and mode == "create":
         st.error(f"이야기 생성 실패: {story_error}")
         retry_col, card_col, reset_col = st.columns(3)
         with retry_col:
-            if st.button("다시 시도", use_container_width=True):
+            if st.button("다시 시도", width='stretch'):
                 st.session_state["story_error"] = None
                 st.session_state["is_generating_story"] = True
                 st.rerun()
                 st.stop()
         with card_col:
-            if st.button("카드 다시 고르기", use_container_width=True):
+            if st.button("카드 다시 고르기", width='stretch'):
                 clear_stages_from(stage_idx)
                 reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
                 go_step(4)
                 st.rerun()
                 st.stop()
         with reset_col:
-            if st.button("모두 초기화", use_container_width=True):
+            if st.button("모두 초기화", width='stretch'):
                 reset_all_state()
                 st.rerun()
                 st.stop()
@@ -1540,13 +1864,13 @@ elif current_step == 5 and mode == "create":
     image_error = stage_entry.get("image_error") if stage_entry else st.session_state.get("story_image_error")
 
     if image_bytes:
-        st.image(image_bytes, caption="AI 생성 삽화", use_container_width=True)
+        st.image(image_bytes, caption="AI 생성 삽화", width='stretch')
     elif image_error:
         st.warning(f"삽화 생성 실패: {image_error}")
 
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 카드 다시 고르기", use_container_width=True):
+        if st.button("← 카드 다시 고르기", width='stretch'):
             clear_stages_from(stage_idx)
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             go_step(4)
@@ -1557,7 +1881,7 @@ elif current_step == 5 and mode == "create":
         if stage_idx < len(STORY_PHASES) - 1:
             if st.button(
                 "다음 단계로 →",
-                use_container_width=True,
+                width='stretch',
                 disabled=not stage_completed,
             ):
                 st.session_state["current_stage_idx"] = stage_idx + 1
@@ -1568,7 +1892,7 @@ elif current_step == 5 and mode == "create":
         else:
             if st.button(
                 "이야기 모아보기 →",
-                use_container_width=True,
+                width='stretch',
                 disabled=not stage_completed,
             ):
                 st.session_state["step"] = 6
@@ -1576,13 +1900,13 @@ elif current_step == 5 and mode == "create":
                 st.rerun()
                 st.stop()
     with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
 
     if stage_entry and stage_idx < len(STORY_PHASES) - 1:
-        if st.button("이야기 모아보기", use_container_width=True):
+        if st.button("이야기 모아보기", width='stretch'):
             st.session_state["step"] = 6
             st.rerun()
             st.stop()
@@ -1612,7 +1936,7 @@ elif current_step == 6 and mode == "create":
         except StopIteration:
             next_stage_idx = len(STORY_PHASES) - 1
 
-        if st.button("남은 단계 이어가기 →", use_container_width=True):
+        if st.button("남은 단계 이어가기 →", width='stretch'):
             st.session_state["current_stage_idx"] = next_stage_idx
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.session_state["step"] = 4
@@ -1718,6 +2042,18 @@ elif current_step == 6 and mode == "create":
                 st.session_state["story_export_remote_blob"] = None
                 st.session_state["selected_export"] = export_result.local_path
             auto_saved = True
+            if auth_user:
+                try:
+                    record_story_export(
+                        user_id=str(auth_user.get("uid", "")),
+                        title=title_val,
+                        local_path=export_result.local_path,
+                        gcs_object=export_result.gcs_object,
+                        gcs_url=export_result.gcs_url,
+                        author_name=_auth_display_name(auth_user),
+                    )
+                except Exception as exc:  # pragma: no cover - display only
+                    st.warning(f"동화 기록을 저장하지 못했어요: {exc}")
         except Exception as exc:
             st.error(f"HTML 자동 저장 실패: {exc}")
 
@@ -1737,18 +2073,12 @@ elif current_step == 6 and mode == "create":
 
     st.markdown(f"### {title_val}")
     if cover_image:
-        st.image(cover_image, use_container_width=True)
+        st.image(cover_image, width='stretch')
     elif cover_error:
         st.caption("표지 일러스트를 준비하지 못했어요.")
 
     last_export = st.session_state.get("story_export_path")
     last_remote = st.session_state.get("story_export_remote_url")
-    if USE_REMOTE_EXPORTS and last_remote:
-        st.caption(f"최근 업로드: {last_remote}")
-    elif last_export:
-        st.caption(f"최근 저장 파일: {last_export}")
-    else:
-        st.caption("전체 이야기가 준비되면 자동으로 HTML로 저장돼요.")
 
     for idx, section in enumerate(display_sections):
         if section.get("missing"):
@@ -1760,7 +2090,7 @@ elif current_step == 6 and mode == "create":
         paragraphs = section.get("paragraphs") or []
 
         if image_bytes:
-            st.image(image_bytes, use_container_width=True)
+            st.image(image_bytes, width='stretch')
         elif image_error:
             st.caption("삽화를 준비하지 못했어요.")
 
@@ -1772,141 +2102,220 @@ elif current_step == 6 and mode == "create":
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("← 첫 화면으로", use_container_width=True):
+        if st.button("← 첫 화면으로", width='stretch'):
             reset_all_state()
             st.rerun()
     with c2:
-        if st.button("✏️ 새 동화 만들기", use_container_width=True):
+        if st.button("✏️ 새 동화 만들기", width='stretch'):
             reset_all_state()
             st.session_state["mode"] = "create"
             st.session_state["step"] = 1
             st.rerun()
     with c3:
-        if st.button("📂 저장한 동화 보기", use_container_width=True):
+        if st.button("📂 저장한 동화 보기", width='stretch'):
             st.session_state["mode"] = "view"
             st.session_state["step"] = 5
             st.rerun()
 
 elif current_step == 5 and mode == "view":
     st.subheader("저장한 동화 보기")
-    if USE_REMOTE_EXPORTS:
-        if not is_gcs_available():
-            st.error("Google Cloud Storage 설정을 확인해주세요. 업로드용 버킷 정보가 올바르지 않습니다.")
+    if STORY_LIBRARY_INIT_ERROR:
+        st.warning(f"동화 기록 저장소 초기화 중 문제가 발생했어요: {STORY_LIBRARY_INIT_ERROR}")
+    filter_options = ["모두의 동화"]
+    if auth_user:
+        filter_options.append("내 동화")
+
+    view_filter = st.radio(
+        "어떤 동화를 살펴볼까요?",
+        filter_options,
+        horizontal=True,
+        key="story_view_filter",
+    )
+    if not auth_user:
+        st.caption("로그인하면 내가 만든 동화만 모아볼 수 있어요.")
+
+    records: list[StoryRecord] | None = None
+    records_error: str | None = None
+    try:
+        if view_filter == "내 동화" and auth_user:
+            records = list_story_records(user_id=str(auth_user.get("uid")), limit=100)
         else:
-            remote_exports = list_gcs_exports()
-            if not remote_exports:
-                st.info("Google Cloud Storage에 저장된 동화가 없습니다. 새로 동화를 생성하면 여기에서 확인할 수 있어요.")
-            else:
-                tokens = [f"gcs:{export.object_name}" for export in remote_exports]
+            records = list_story_records(limit=100)
+    except Exception as exc:  # pragma: no cover - defensive catch
+        records_error = str(exc)
+        records = []
 
-                def _format_remote(idx: int) -> str:
-                    item = remote_exports[idx]
-                    updated = item.updated
-                    if updated and updated.tzinfo is None:
-                        updated = updated.replace(tzinfo=timezone.utc)
-                    if updated:
-                        updated_local = updated.astimezone(KST)
-                        modified = updated_local.strftime("%Y-%m-%d %H:%M:%S")
-                    else:
-                        modified = "시간 정보 없음"
-                    return f"{item.filename} · {modified}"
+    if records_error:
+        st.error(f"동화 기록을 불러오지 못했어요: {records_error}")
 
-                options = list(range(len(remote_exports)))
-                selected_token = st.session_state.get("selected_export")
-                default_index = 0
-                if selected_token in tokens:
-                    default_index = tokens.index(selected_token)
+    entries: list[dict[str, Any]] = []
+    recorded_keys: set[str] = set()
 
-                selected_index = st.selectbox(
-                    "읽고 싶은 동화를 선택하세요",
-                    options,
-                    index=default_index,
-                    format_func=_format_remote,
-                    key="remote_export_select",
+    for record in records:
+        key_candidate = (record.gcs_object or record.local_path or record.html_filename or "").lower()
+        if key_candidate:
+            recorded_keys.add(key_candidate)
+        entries.append(
+            {
+                "token": f"record:{record.id}",
+                "title": record.title,
+                "author": record.author_name,
+                "created_at": record.created_at_utc,
+                "local_path": record.local_path,
+                "gcs_object": record.gcs_object,
+                "gcs_url": record.gcs_url,
+                "html_filename": record.html_filename,
+                "origin": "record",
+            }
+        )
+
+    include_legacy = view_filter != "내 동화"
+    if include_legacy:
+        legacy_candidates: list[Any] = []
+        if USE_REMOTE_EXPORTS:
+            if is_gcs_available():
+                legacy_candidates = list_gcs_exports()
+        else:
+            legacy_candidates = list_html_exports()
+
+        for item in legacy_candidates:
+            if USE_REMOTE_EXPORTS:
+                key = (item.object_name or item.filename).lower()
+                if key in recorded_keys:
+                    continue
+                created_at = item.updated
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                created_at = created_at or datetime.fromtimestamp(0, tz=timezone.utc)
+                entries.append(
+                    {
+                        "token": f"legacy-remote:{item.object_name}",
+                        "title": Path(item.filename).stem,
+                        "author": None,
+                        "created_at": created_at,
+                        "local_path": None,
+                        "gcs_object": item.object_name,
+                        "gcs_url": item.public_url,
+                        "html_filename": item.filename,
+                        "origin": "legacy-remote",
+                    }
                 )
-
-                export_item = remote_exports[selected_index]
-                st.session_state["selected_export"] = tokens[selected_index]
-                st.session_state["story_export_remote_url"] = export_item.public_url
-                st.session_state["story_export_remote_blob"] = export_item.object_name
-
-                html_content = download_gcs_export(export_item.object_name)
-                if html_content is None:
-                    st.error("동화를 불러오는 데 실패했습니다.")
-                    if export_item.public_url:
-                        st.caption(f"파일 URL: {export_item.public_url}")
-                else:
-                    st.download_button(
-                        "동화 다운로드",
-                        data=html_content,
-                        file_name=export_item.filename,
-                        mime="text/html",
-                        use_container_width=True,
-                    )
-                    if export_item.public_url:
-                        st.caption(f"파일 URL: {export_item.public_url}")
-                    components.html(html_content, height=700, scrolling=True)
-    else:
-        exports = list_html_exports()
-
-        if not exports:
-            st.info("저장된 동화가 없습니다. 먼저 동화를 생성해주세요.")
-        else:
-            options = list(range(len(exports)))
-
-            def _format_local(idx: int) -> str:
-                path = exports[idx]
-                modified = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                return f"{path.name} · {modified}"
-
-            selected_token = st.session_state.get("selected_export")
-            default_index = 0
-            if selected_token:
+            else:
+                key = str(item).lower()
+                if key in recorded_keys:
+                    continue
                 try:
-                    default_index = next(
-                        idx for idx, path in enumerate(exports) if str(path) == selected_token
-                    )
-                except StopIteration:
-                    default_index = 0
-
-            selected_index = st.selectbox(
-                "읽고 싶은 동화를 선택하세요",
-                options,
-                index=default_index,
-                format_func=_format_local,
-                key="local_export_select",
-            )
-
-            selected_path = exports[selected_index]
-            st.session_state["selected_export"] = str(selected_path)
-            st.session_state["story_export_remote_url"] = None
-            st.session_state["story_export_remote_blob"] = None
-
-            try:
-                html_content = selected_path.read_text("utf-8")
-            except Exception as exc:
-                st.error(f"동화를 여는 데 실패했습니다: {exc}")
-            else:
-                st.download_button(
-                    "동화 다운로드",
-                    data=html_content,
-                    file_name=selected_path.name,
-                    mime="text/html",
-                    use_container_width=True,
+                    mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+                except Exception:
+                    mtime = datetime.fromtimestamp(0, tz=timezone.utc)
+                entries.append(
+                    {
+                        "token": f"legacy-local:{item}",
+                        "title": item.stem,
+                        "author": None,
+                        "created_at": mtime,
+                        "local_path": str(item),
+                        "gcs_object": None,
+                        "gcs_url": None,
+                        "html_filename": item.name,
+                        "origin": "legacy-local",
+                    }
                 )
-                st.caption(f"파일 경로: {selected_path}")
-                components.html(html_content, height=700, scrolling=True)
+
+    if not entries:
+        if view_filter == "내 동화":
+            st.info("아직 내가 만든 동화가 없어요. 새 동화를 만들어보세요.")
+        else:
+            st.info("저장된 동화가 없습니다. 먼저 동화를 생성해주세요.")
+    else:
+        entries.sort(key=lambda entry: entry.get("created_at", datetime.fromtimestamp(0, tz=timezone.utc)), reverse=True)
+
+        def _format_entry(idx: int) -> str:
+            entry = entries[idx]
+            created = entry.get("created_at")
+            stamp = format_kst(created) if created else "시간 정보 없음"
+            author = entry.get("author")
+            if author and view_filter != "내 동화":
+                return f"{entry['title']} · {author} · {stamp}"
+            return f"{entry['title']} · {stamp}"
+
+        tokens = [entry["token"] for entry in entries]
+        selected_token = st.session_state.get("selected_export")
+        default_index = 0
+        if selected_token in tokens:
+            default_index = tokens.index(selected_token)
+
+        selected_index = st.selectbox(
+            "읽고 싶은 동화를 선택하세요",
+            list(range(len(entries))),
+            index=default_index,
+            format_func=_format_entry,
+            key="story_entry_select",
+        )
+
+        selected_entry = entries[selected_index]
+        st.session_state["selected_export"] = selected_entry["token"]
+        st.session_state["story_export_remote_blob"] = selected_entry.get("gcs_object")
+        st.session_state["story_export_remote_url"] = selected_entry.get("gcs_url")
+
+        html_content: str | None = None
+        html_error: str | None = None
+        local_candidates: list[Path] = []
+
+        local_path = selected_entry.get("local_path")
+        if local_path:
+            local_candidates.append(Path(local_path))
+        html_filename = selected_entry.get("html_filename")
+        if html_filename:
+            local_candidates.append(HTML_EXPORT_PATH / html_filename)
+
+        for candidate in local_candidates:
+            try:
+                if candidate.exists():
+                    html_content = candidate.read_text("utf-8")
+                    st.session_state["story_export_path"] = str(candidate)
+                    break
+            except Exception as exc:
+                html_error = str(exc)
+
+        if html_content is None and selected_entry.get("gcs_object"):
+            html_content = download_gcs_export(selected_entry["gcs_object"])
+            if html_content is None:
+                html_error = "원격 저장소에서 파일을 불러오지 못했어요."
+
+        if html_content is None:
+            if html_error:
+                st.error(f"동화를 여는 데 실패했습니다: {html_error}")
+            else:
+                st.error("동화를 여는 데 실패했습니다.")
+            if selected_entry.get("gcs_url"):
+                st.caption(f"파일 URL: {selected_entry['gcs_url']}")
+            elif local_path:
+                st.caption(f"파일 경로: {local_path}")
+        else:
+            st.download_button(
+                "동화 다운로드",
+                data=html_content,
+                file_name=selected_entry.get("html_filename") or "story.html",
+                mime="text/html",
+                width='stretch',
+            )
+            if selected_entry.get("gcs_url"):
+                st.caption(f"파일 URL: {selected_entry['gcs_url']}")
+            elif local_path:
+                st.caption(f"파일 경로: {local_path}")
+            components.html(html_content, height=700, scrolling=True)
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("← 선택 화면으로", use_container_width=True):
+        if st.button("← 선택 화면으로", width='stretch'):
             st.session_state["mode"] = None
             st.session_state["step"] = 0
             st.session_state["selected_export"] = None
             st.session_state["story_export_path"] = None
             st.rerun()
     with c2:
-        if st.button("✏️ 새 동화 만들기", use_container_width=True):
+        if st.button("✏️ 새 동화 만들기", width='stretch'):
             st.session_state["mode"] = "create"
             st.session_state["step"] = 1
             st.rerun()

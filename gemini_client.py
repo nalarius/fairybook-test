@@ -52,7 +52,8 @@ def _get_genai_module():
 
     return _GENAI_MODULE
 
-_MODEL = "gemini-1.5-flash"  # 속도/비용 유리(샘플용)
+_MODEL_ENV = (os.getenv("GEMINI_TEXT_MODEL") or "").strip()
+_MODEL = _MODEL_ENV or "models/gemini-2.5-flash"
 _IMAGE_MODEL_ENV = (os.getenv("GEMINI_IMAGE_MODEL") or "").strip()
 _IMAGE_MODEL = _IMAGE_MODEL_ENV or "gemini-1.5-flash"
 _IMAGE_MODEL_FALLBACKS = ()
