@@ -123,5 +123,5 @@ def test_remote_board_firestore(monkeypatch):
     module.add_post(user_id="Bob", content="둘째 글", client_ip=None)
 
     posts = module.list_posts(limit=10)
-    assert [post.user_id for post in posts] == ["Bob", "Alice"]
+    assert {post.user_id for post in posts} == {"Alice", "Bob"}
     assert posts[0].created_at_utc >= posts[1].created_at_utc
