@@ -388,7 +388,7 @@ def render_auth_gate(home_bg: str | None) -> None:
     elif st.session_state.get("auth_next_action") == "board":
         st.caption("게시판을 이용하려면 로그인해주세요.")
 
-    if st.button("← 돌아가기", use_container_width=True):
+    if st.button("← 돌아가기", width='stretch'):
         st.session_state["mode"] = None
         st.session_state["step"] = 0
         st.session_state["auth_error"] = None
@@ -416,7 +416,7 @@ def render_auth_gate(home_bg: str | None) -> None:
                 type="password",
                 key="auth_signin_password",
             )
-            submitted = st.form_submit_button("로그인", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("로그인", type="primary", width='stretch')
 
         if submitted:
             email_norm = email.strip()
@@ -450,7 +450,7 @@ def render_auth_gate(home_bg: str | None) -> None:
                 type="password",
                 key="auth_signup_password",
             )
-            submitted = st.form_submit_button("가입하기", type="primary", use_container_width=True)
+            submitted = st.form_submit_button("가입하기", type="primary", width='stretch')
 
         if submitted:
             email_norm = email.strip()
@@ -580,7 +580,7 @@ def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> N
     default_alias = st.session_state.get("board_user_alias") or _auth_display_name(auth_user)
     st.session_state.setdefault("board_user_alias", default_alias)
 
-    if st.button("← 홈으로 돌아가기", use_container_width=True):
+    if st.button("← 홈으로 돌아가기", width='stretch'):
         st.session_state["mode"] = None
         st.session_state["step"] = 0
         st.session_state["board_submit_error"] = None
@@ -604,7 +604,7 @@ def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> N
             max_chars=1000,
             placeholder="동화 작업 중 느낀 점이나 부탁할 내용을 자유롭게 남겨주세요.",
         )
-        submitted = st.form_submit_button("메시지 남기기", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("메시지 남기기", type="primary", width='stretch')
 
     st.session_state["board_user_alias"] = alias_value
     st.session_state["board_content"] = content_value
@@ -1046,24 +1046,24 @@ with header_cols[0]:
         st.caption("로그인하면 동화 만들기와 게시판을 이용할 수 있어요.")
 
 with header_cols[1]:
-    menu = st.popover("⚙️", use_container_width=True)
+    menu = st.popover("⚙️", width='stretch')
     with menu:
         st.markdown("#### 메뉴")
         if auth_user:
             st.write(f"현재 사용자: **{_auth_display_name(auth_user)}**")
-            if st.button("로그아웃", use_container_width=True):
+            if st.button("로그아웃", width='stretch'):
                 logout_user()
                 st.rerun()
-            st.button("설정 (준비중)", disabled=True, use_container_width=True)
+            st.button("설정 (준비중)", disabled=True, width='stretch')
             st.caption("설정 항목은 준비 중이에요.")
         else:
-            if st.button("로그인 / 회원가입", use_container_width=True):
+            if st.button("로그인 / 회원가입", width='stretch'):
                 st.session_state["auth_next_action"] = None
                 st.session_state["mode"] = "auth"
                 st.session_state["auth_form_mode"] = "signin"
                 st.session_state["auth_error"] = None
                 st.rerun()
-            st.button("설정 (로그인 필요)", disabled=True, use_container_width=True)
+            st.button("설정 (로그인 필요)", disabled=True, width='stretch')
             st.caption("로그인하면 더 많은 기능을 사용할 수 있어요.")
 
 progress_placeholder = st.empty()
@@ -1121,7 +1121,7 @@ if current_step == 0:
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("✏️ 동화 만들기", use_container_width=True):
+        if st.button("✏️ 동화 만들기", width='stretch'):
             if auth_user:
                 reset_all_state()
                 ensure_state()
@@ -1134,14 +1134,14 @@ if current_step == 0:
     with c2:
         view_clicked = st.button(
             "📖 동화책 읽기",
-            use_container_width=True,
+            width='stretch',
             disabled=False,
         )
         if view_clicked:
             st.session_state["mode"] = "view"
             st.session_state["step"] = 5
 
-    board_clicked = st.button("💬 동화 작업실 게시판", use_container_width=True)
+    board_clicked = st.button("💬 동화 작업실 게시판", width='stretch')
     if board_clicked:
         if auth_user:
             st.session_state["mode"] = "board"
@@ -1177,8 +1177,8 @@ elif current_step == 1:
             key="topic_input",  # 위젯은 topic_input에만 바인딩
         )
         c1, c2 = st.columns(2)
-        go_next = c1.form_submit_button("다음 단계로 →", use_container_width=True)
-        do_reset = c2.form_submit_button("입력 초기화", use_container_width=True)
+        go_next = c1.form_submit_button("다음 단계로 →", width='stretch')
+        do_reset = c2.form_submit_button("입력 초기화", width='stretch')
 
     if do_reset:
         # 임시 위젯 값만 초기화. 확정값(age/topic)은 건드리지 않음.
@@ -1201,7 +1201,7 @@ elif current_step == 2:
     rand8 = st.session_state["rand8"]
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1227,7 +1227,7 @@ elif current_step == 2:
         def show_error_and_stop(message: str):
             st.error(message)
             st.session_state["is_generating_all"] = False
-            if st.button("다시 시도하기", use_container_width=True):
+            if st.button("다시 시도하기", width='stretch'):
                 reset_story_session()
                 st.rerun()
             st.stop()
@@ -1349,7 +1349,7 @@ elif current_step == 2:
         label="",
         images=type_images,
         captions=type_captions,
-        use_container_width=True,
+        width='stretch',
         return_value="index",
         key="rand8_picker",
     )
@@ -1366,7 +1366,7 @@ elif current_step == 2:
 
     st.markdown("---")
 
-    if st.button("✨ 제목 만들기", type="primary", use_container_width=True):
+    if st.button("✨ 제목 만들기", type="primary", width='stretch'):
         reset_story_session()
         st.session_state["is_generating_all"] = True
         st.rerun()
@@ -1375,20 +1375,20 @@ elif current_step == 2:
     st.markdown("---")
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 이야기 아이디어 다시 입력", use_container_width=True):
+        if st.button("← 이야기 아이디어 다시 입력", width='stretch'):
             reset_story_session()
             go_step(1)
             st.rerun()
             st.stop()
     with nav_col2:
-        if st.button("새로운 스토리 유형 뽑기", use_container_width=True):
+        if st.button("새로운 스토리 유형 뽑기", width='stretch'):
             st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types))) if story_types else []
             st.session_state["selected_type_idx"] = 0
             reset_story_session()
             st.rerun()
             st.stop()
     with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1402,7 +1402,7 @@ elif current_step == 3:
     title_val = st.session_state.get("story_title")
     if not title_val:
         st.warning("제목을 먼저 생성해야 합니다.")
-        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+        if st.button("제목 만들기 화면으로 돌아가기", width='stretch'):
             go_step(2)
             st.rerun()
             st.stop()
@@ -1422,7 +1422,7 @@ elif current_step == 3:
         caption = "표지 일러스트"
         if cover_style and cover_style.get("name"):
             caption += f" · {cover_style.get('name')} 스타일"
-        st.image(cover_image, caption=caption, use_container_width=True)
+        st.image(cover_image, caption=caption, width='stretch')
     elif cover_error:
         st.warning(f"표지 일러스트 생성 실패: {cover_error}")
     else:
@@ -1449,7 +1449,7 @@ elif current_step == 3:
         active_style = style_choice or cover_style
         if active_style and active_style.get("name"):
             caption += f" · {active_style.get('name')} 스타일"
-        st.image(character_image, caption=caption, use_container_width=True)
+        st.image(character_image, caption=caption, width='stretch')
     elif character_error:
         st.warning(f"설정화 생성 실패: {character_error}")
     else:
@@ -1457,21 +1457,21 @@ elif current_step == 3:
     
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("← 제목 다시 만들기", use_container_width=True):
+        if st.button("← 제목 다시 만들기", width='stretch'):
             reset_story_session()
             go_step(2)
             st.rerun()
             st.stop()
 
     with c2:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
 
     with c3:
         continue_disabled = not title_val
-        if st.button("계속해서 이야기 만들기 →", type="primary", use_container_width=True, disabled=continue_disabled):
+        if st.button("계속해서 이야기 만들기 →", type="primary", width='stretch', disabled=continue_disabled):
             clear_stages_from(0)
             st.session_state["current_stage_idx"] = 0
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
@@ -1493,7 +1493,7 @@ elif current_step == 4 and mode == "create":
     title_val = st.session_state.get("story_title")
     if not title_val:
         st.warning("제목을 먼저 생성해야 합니다.")
-        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+        if st.button("제목 만들기 화면으로 돌아가기", width='stretch'):
             go_step(2)
             st.rerun()
             st.stop()
@@ -1505,7 +1505,7 @@ elif current_step == 4 and mode == "create":
     if not available_cards:
         missing_msg = "ending.json" if is_final_stage else "story.json"
         st.error(f"{missing_msg}에서 사용할 수 있는 이야기 카드를 찾지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1514,7 +1514,7 @@ elif current_step == 4 and mode == "create":
     rand8 = st.session_state.get("rand8") or []
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1555,7 +1555,7 @@ elif current_step == 4 and mode == "create":
         if sample_size <= 0:
             source_label = "ending.json" if is_final_stage else "story.json"
             st.error(f"카드가 부족합니다. {source_label}을 확인해주세요.")
-            if st.button("처음으로 돌아가기", use_container_width=True):
+            if st.button("처음으로 돌아가기", width='stretch'):
                 reset_all_state()
                 st.rerun()
                 st.stop()
@@ -1583,7 +1583,7 @@ elif current_step == 4 and mode == "create":
         label="",
         images=card_images,
         captions=card_captions,
-        use_container_width=True,
+        width='stretch',
         return_value="index",
         key="story_card_picker",
     )
@@ -1602,7 +1602,7 @@ elif current_step == 4 and mode == "create":
     if existing_stage:
         st.warning("이미 완성된 단계가 있어 새로 만들면 덮어씁니다.")
 
-    if st.button("이 단계 이야기 만들기", type="primary", use_container_width=True):
+    if st.button("이 단계 이야기 만들기", type="primary", width='stretch'):
         reset_story_session(keep_title=True, keep_cards=True, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
         st.session_state["story_prompt"] = None
         st.session_state["is_generating_story"] = True
@@ -1612,7 +1612,7 @@ elif current_step == 4 and mode == "create":
 
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 제목 다시 만들기", use_container_width=True):
+        if st.button("← 제목 다시 만들기", width='stretch'):
             clear_stages_from(0)
             st.session_state["current_stage_idx"] = 0
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
@@ -1620,12 +1620,12 @@ elif current_step == 4 and mode == "create":
             st.rerun()
             st.stop()
     with nav_col2:
-        if st.button("새로운 스토리 카드 뽑기", use_container_width=True):
+        if st.button("새로운 스토리 카드 뽑기", width='stretch'):
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.rerun()
             st.stop()
     with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1646,7 +1646,7 @@ elif current_step == 5 and mode == "create":
     title_val = st.session_state.get("story_title")
     if not title_val:
         st.warning("제목을 먼저 생성해야 합니다.")
-        if st.button("제목 만들기 화면으로 돌아가기", use_container_width=True):
+        if st.button("제목 만들기 화면으로 돌아가기", width='stretch'):
             go_step(2)
             st.rerun()
             st.stop()
@@ -1655,7 +1655,7 @@ elif current_step == 5 and mode == "create":
     cards = st.session_state.get("story_cards_rand4")
     if not cards:
         st.warning("이야기 카드를 다시 선택해주세요.")
-        if st.button("이야기 카드 화면으로", use_container_width=True):
+        if st.button("이야기 카드 화면으로", width='stretch'):
             go_step(4)
             st.rerun()
             st.stop()
@@ -1664,7 +1664,7 @@ elif current_step == 5 and mode == "create":
     rand8 = st.session_state.get("rand8") or []
     if not rand8:
         st.warning("이야기 유형 데이터를 불러오지 못했습니다.")
-        if st.button("처음으로 돌아가기", use_container_width=True):
+        if st.button("처음으로 돌아가기", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
@@ -1825,7 +1825,7 @@ elif current_step == 5 and mode == "create":
 
     if not story_data and not story_error:
         st.info("이야기 카드를 선택한 뒤 ‘이야기 만들기’ 버튼을 눌러주세요.")
-        if st.button("이야기 카드 화면으로", use_container_width=True):
+        if st.button("이야기 카드 화면으로", width='stretch'):
             go_step(4)
             st.rerun()
             st.stop()
@@ -1835,20 +1835,20 @@ elif current_step == 5 and mode == "create":
         st.error(f"이야기 생성 실패: {story_error}")
         retry_col, card_col, reset_col = st.columns(3)
         with retry_col:
-            if st.button("다시 시도", use_container_width=True):
+            if st.button("다시 시도", width='stretch'):
                 st.session_state["story_error"] = None
                 st.session_state["is_generating_story"] = True
                 st.rerun()
                 st.stop()
         with card_col:
-            if st.button("카드 다시 고르기", use_container_width=True):
+            if st.button("카드 다시 고르기", width='stretch'):
                 clear_stages_from(stage_idx)
                 reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
                 go_step(4)
                 st.rerun()
                 st.stop()
         with reset_col:
-            if st.button("모두 초기화", use_container_width=True):
+            if st.button("모두 초기화", width='stretch'):
                 reset_all_state()
                 st.rerun()
                 st.stop()
@@ -1864,13 +1864,13 @@ elif current_step == 5 and mode == "create":
     image_error = stage_entry.get("image_error") if stage_entry else st.session_state.get("story_image_error")
 
     if image_bytes:
-        st.image(image_bytes, caption="AI 생성 삽화", use_container_width=True)
+        st.image(image_bytes, caption="AI 생성 삽화", width='stretch')
     elif image_error:
         st.warning(f"삽화 생성 실패: {image_error}")
 
     nav_col1, nav_col2, nav_col3 = st.columns(3)
     with nav_col1:
-        if st.button("← 카드 다시 고르기", use_container_width=True):
+        if st.button("← 카드 다시 고르기", width='stretch'):
             clear_stages_from(stage_idx)
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             go_step(4)
@@ -1881,7 +1881,7 @@ elif current_step == 5 and mode == "create":
         if stage_idx < len(STORY_PHASES) - 1:
             if st.button(
                 "다음 단계로 →",
-                use_container_width=True,
+                width='stretch',
                 disabled=not stage_completed,
             ):
                 st.session_state["current_stage_idx"] = stage_idx + 1
@@ -1892,7 +1892,7 @@ elif current_step == 5 and mode == "create":
         else:
             if st.button(
                 "이야기 모아보기 →",
-                use_container_width=True,
+                width='stretch',
                 disabled=not stage_completed,
             ):
                 st.session_state["step"] = 6
@@ -1900,13 +1900,13 @@ elif current_step == 5 and mode == "create":
                 st.rerun()
                 st.stop()
     with nav_col3:
-        if st.button("모두 초기화", use_container_width=True):
+        if st.button("모두 초기화", width='stretch'):
             reset_all_state()
             st.rerun()
             st.stop()
 
     if stage_entry and stage_idx < len(STORY_PHASES) - 1:
-        if st.button("이야기 모아보기", use_container_width=True):
+        if st.button("이야기 모아보기", width='stretch'):
             st.session_state["step"] = 6
             st.rerun()
             st.stop()
@@ -1936,7 +1936,7 @@ elif current_step == 6 and mode == "create":
         except StopIteration:
             next_stage_idx = len(STORY_PHASES) - 1
 
-        if st.button("남은 단계 이어가기 →", use_container_width=True):
+        if st.button("남은 단계 이어가기 →", width='stretch'):
             st.session_state["current_stage_idx"] = next_stage_idx
             reset_story_session(keep_title=True, keep_cards=False, keep_synopsis=True, keep_protagonist=True, keep_character=True, keep_style=True)
             st.session_state["step"] = 4
@@ -2073,7 +2073,7 @@ elif current_step == 6 and mode == "create":
 
     st.markdown(f"### {title_val}")
     if cover_image:
-        st.image(cover_image, use_container_width=True)
+        st.image(cover_image, width='stretch')
     elif cover_error:
         st.caption("표지 일러스트를 준비하지 못했어요.")
 
@@ -2090,7 +2090,7 @@ elif current_step == 6 and mode == "create":
         paragraphs = section.get("paragraphs") or []
 
         if image_bytes:
-            st.image(image_bytes, use_container_width=True)
+            st.image(image_bytes, width='stretch')
         elif image_error:
             st.caption("삽화를 준비하지 못했어요.")
 
@@ -2102,17 +2102,17 @@ elif current_step == 6 and mode == "create":
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("← 첫 화면으로", use_container_width=True):
+        if st.button("← 첫 화면으로", width='stretch'):
             reset_all_state()
             st.rerun()
     with c2:
-        if st.button("✏️ 새 동화 만들기", use_container_width=True):
+        if st.button("✏️ 새 동화 만들기", width='stretch'):
             reset_all_state()
             st.session_state["mode"] = "create"
             st.session_state["step"] = 1
             st.rerun()
     with c3:
-        if st.button("📂 저장한 동화 보기", use_container_width=True):
+        if st.button("📂 저장한 동화 보기", width='stretch'):
             st.session_state["mode"] = "view"
             st.session_state["step"] = 5
             st.rerun()
@@ -2298,7 +2298,7 @@ elif current_step == 5 and mode == "view":
                 data=html_content,
                 file_name=selected_entry.get("html_filename") or "story.html",
                 mime="text/html",
-                use_container_width=True,
+                width='stretch',
             )
             if selected_entry.get("gcs_url"):
                 st.caption(f"파일 URL: {selected_entry['gcs_url']}")
@@ -2308,14 +2308,14 @@ elif current_step == 5 and mode == "view":
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("← 선택 화면으로", use_container_width=True):
+        if st.button("← 선택 화면으로", width='stretch'):
             st.session_state["mode"] = None
             st.session_state["step"] = 0
             st.session_state["selected_export"] = None
             st.session_state["story_export_path"] = None
             st.rerun()
     with c2:
-        if st.button("✏️ 새 동화 만들기", use_container_width=True):
+        if st.button("✏️ 새 동화 만들기", width='stretch'):
             st.session_state["mode"] = "create"
             st.session_state["step"] = 1
             st.rerun()
