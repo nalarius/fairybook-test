@@ -10,7 +10,7 @@ Fairybook is a six-step Streamlit experience for building Korean children's stor
 - **Step 3 – Cover preview**: The generated artifacts (title, synopsis, protagonist profile, character art, and cover illustration) are shown together so the user can validate tone and style before committing to stage generation. The chosen art style is persisted for the remainder of the session.
 - **Step 4 – Narrative card selection**: Four cards sampled from `story.json` steer the current stage (the finale automatically draws from `ending.json` so the conclusion can lean 밝음·비극·열림 등 원하는 톤으로 갈무리된다). Users can re-sample cards or backtrack without losing the cover art or selected style.
 - **Step 5 – Stage results**: Gemini writes the requested stage using summaries of prior stages plus the synopsis/protagonist context to maintain continuity. Illustration prompts reuse the locked style and optionally feed the character concept art as a reference image.
-- **Step 6 – Saved story recap**: When all stages are complete, the full story appears with cover and stage separators. An export signature prevents duplicate saves while the HTML bundle is auto-generated and surfaced to the user. The same viewer powers **📂 저장본 보기** for past exports.
+- **Step 6 – Saved story recap**: When all stages are complete, the full story appears with cover and stage separators. An export signature prevents duplicate saves while the HTML bundle is auto-generated and surfaced to the user. The same viewer powers **📂 저장본 보기**, merging recorded metadata with any legacy exports, and introduces a login-gated **내 동화** filter that hides other users’ stories.
 
 Key helpers such as `go_step()`, `list_html_exports()`, and `_build_story_html_document()` keep navigation and exporting predictable amid Streamlit reruns.
 
@@ -26,7 +26,7 @@ Key helpers such as `go_step()`, `list_html_exports()`, and `_build_story_html_d
 3. `build_character_image_prompt()` composes an illustration directive for the protagonist; the resulting prompt feeds `generate_image_with_gemini()` to produce a reference portrait that can guide subsequent stage art.
 4. `generate_title_with_gemini()` consumes the age band, topic, archetype, synopsis, and protagonist notes to deliver a single JSON title payload.
 5. Each narrative card triggers `generate_story_with_gemini()`, which now receives the stage metadata, prior stage summaries, synopsis, and protagonist brief so Gemini can weave callbacks across the full arc.
-6. The Gemini text model (`gemini-1.5-flash`) generates a response. `_extract_text_from_response()` tolerates both direct `.text` outputs and `candidates[0].content.parts` lists.
+6. The Gemini text model (default `models/gemini-2.5-flash`, override with `GEMINI_TEXT_MODEL`) generates a response. `_extract_text_from_response()` tolerates both direct `.text` outputs and `candidates[0].content.parts` lists.
 7. Markdown fences (```json) are stripped before `json.loads()` runs. Missing or malformed data produces a structured error message stored in `st.session_state["story_error"]`.
 8. Successful results expose `title` and `paragraphs` fields back to the Streamlit layer for rendering; the UI omits per-stage downloads to keep readers focused on continuity.
 
@@ -48,7 +48,7 @@ All JSON files are UTF-8 encoded and loaded lazily so Streamlit reruns stay resp
 - `.env` holds `GEMINI_API_KEY` (required) and optional `GEMINI_IMAGE_MODEL`. Loading happens once on module import via `python-dotenv`.
 - Firebase auth relies on `FIREBASE_WEB_API_KEY`, `GCP_PROJECT_ID`, and the shared service-account JSON (pointed to by `GOOGLE_APPLICATION_CREDENTIALS` / `FIREBASE_SERVICE_ACCOUNT`). The helper module `firebase_auth.py` handles Identity Toolkit REST calls, token refresh, and Admin SDK verification.
 - The `scripts/verify_firebase_admin.py` utility loads `.env`, resolves credentials, and performs a dummy custom-token round trip to validate Admin SDK access before running Streamlit.
-- The default text model is `gemini-1.5-flash`; adjust `_MODEL` in `gemini_client.py` if latency or cost trade-offs change.
+- The default text model is `models/gemini-2.5-flash`; adjust `GEMINI_TEXT_MODEL` in your `.env` when latency or cost trade-offs change.
 - Illustration fallbacks keep legacy Imagen endpoints working for older SDKs. Use `genai.list_models()` during development to verify availability before changing defaults.
 
 ## Error Handling & UX Feedback

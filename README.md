@@ -8,7 +8,7 @@ Fairybook is a Streamlit application that helps educators and parents craft shor
 - Story pre-production: auto-generates a synopsis, detailed protagonist profile, and character concept art before the title phase.
 - Consistent illustration style: the initial generation locks a single art direction and reuses it for character art, stage visuals, and the cover.
 - HTML exports: bundle the title, cover, stage illustrations, and prose into timestamped HTML files stored under `html_exports/`.
-- Saved story browser: revisit previous exports inside the app without leaving Streamlit.
+- Saved story browser: revisit previous exports inside the app without leaving Streamlit, with a dedicated **내 동화** view for logged-in users.
 - Temporary community board: leave quick notes for fellow writers; implemented in an isolated `community_board.py` module so it can be removed or swapped independently.
 - Firebase email/password login: authenticate writers before they can create new stories or post on the board, while keeping the saved-story viewer public.
 
@@ -30,6 +30,7 @@ pip install -r requirements.txt
 2. Replace `GEMINI_API_KEY` with your real key and adjust other variables as needed:
    ```ini
    GEMINI_API_KEY="your-api-key"
+   GEMINI_TEXT_MODEL="models/gemini-2.5-flash"
    # Optional: override the default image model
    GEMINI_IMAGE_MODEL="models/gemini-2.5-flash-image-preview"
    ```

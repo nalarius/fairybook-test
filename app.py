@@ -39,6 +39,7 @@ from firebase_auth import (
     sign_up,
     update_profile,
 )
+from story_library import StoryRecord, init_story_library, list_story_records, record_story_export
 
 st.set_page_config(page_title="동화책 생성기", page_icon="📖", layout="centered")
 
@@ -72,6 +73,11 @@ KST = ZoneInfo("Asia/Seoul")
 BOARD_POST_LIMIT = 50
 
 HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
+STORY_LIBRARY_INIT_ERROR: str | None = None
+try:
+    init_story_library()
+except Exception as exc:  # pragma: no cover - initialization failure surfaced later
+    STORY_LIBRARY_INIT_ERROR = str(exc)
 
 
 def _load_json_entries_from_file(path: str | Path, key: str) -> list[dict]:
@@ -1105,13 +1111,13 @@ render_app_styles(home_bg, show_home_hero=current_step == 0)
 
 if current_step == 0:
     st.subheader("어떤 작업을 하시겠어요?")
-    if USE_REMOTE_EXPORTS:
-        remote_exports_available = False
-        if is_gcs_available():
-            remote_exports_available = bool(list_gcs_exports())
-        exports_available = remote_exports_available
-    else:
-        exports_available = bool(list_html_exports())
+    try:
+        exports_available = bool(list_story_records(limit=1))
+    except Exception:
+        if USE_REMOTE_EXPORTS and is_gcs_available():
+            exports_available = bool(list_gcs_exports())
+        else:
+            exports_available = bool(list_html_exports())
 
     c1, c2 = st.columns(2)
     with c1:
@@ -1129,7 +1135,7 @@ if current_step == 0:
         view_clicked = st.button(
             "📖 동화책 읽기",
             use_container_width=True,
-            disabled=not exports_available,
+            disabled=False,
         )
         if view_clicked:
             st.session_state["mode"] = "view"
@@ -1147,8 +1153,6 @@ if current_step == 0:
             st.session_state["mode"] = "auth"
         st.rerun()
 
-    if not exports_available:
-        st.caption("저장된 동화가 아직 없습니다. 먼저 동화를 만들어 저장해 주세요.")
 
 elif current_step == 1:
     st.subheader("1단계. 나이대와 이야기 아이디어를 입력하세요")
@@ -2038,6 +2042,18 @@ elif current_step == 6 and mode == "create":
                 st.session_state["story_export_remote_blob"] = None
                 st.session_state["selected_export"] = export_result.local_path
             auto_saved = True
+            if auth_user:
+                try:
+                    record_story_export(
+                        user_id=str(auth_user.get("uid", "")),
+                        title=title_val,
+                        local_path=export_result.local_path,
+                        gcs_object=export_result.gcs_object,
+                        gcs_url=export_result.gcs_url,
+                        author_name=_auth_display_name(auth_user),
+                    )
+                except Exception as exc:  # pragma: no cover - display only
+                    st.warning(f"동화 기록을 저장하지 못했어요: {exc}")
         except Exception as exc:
             st.error(f"HTML 자동 저장 실패: {exc}")
 
@@ -2063,12 +2079,6 @@ elif current_step == 6 and mode == "create":
 
     last_export = st.session_state.get("story_export_path")
     last_remote = st.session_state.get("story_export_remote_url")
-    if USE_REMOTE_EXPORTS and last_remote:
-        st.caption(f"최근 업로드: {last_remote}")
-    elif last_export:
-        st.caption(f"최근 저장 파일: {last_export}")
-    else:
-        st.caption("전체 이야기가 준비되면 자동으로 HTML로 저장돼요.")
 
     for idx, section in enumerate(display_sections):
         if section.get("missing"):
@@ -2109,113 +2119,192 @@ elif current_step == 6 and mode == "create":
 
 elif current_step == 5 and mode == "view":
     st.subheader("저장한 동화 보기")
-    if USE_REMOTE_EXPORTS:
-        if not is_gcs_available():
-            st.error("Google Cloud Storage 설정을 확인해주세요. 업로드용 버킷 정보가 올바르지 않습니다.")
+    if STORY_LIBRARY_INIT_ERROR:
+        st.warning(f"동화 기록 저장소 초기화 중 문제가 발생했어요: {STORY_LIBRARY_INIT_ERROR}")
+    filter_options = ["모두의 동화"]
+    if auth_user:
+        filter_options.append("내 동화")
+
+    view_filter = st.radio(
+        "어떤 동화를 살펴볼까요?",
+        filter_options,
+        horizontal=True,
+        key="story_view_filter",
+    )
+    if not auth_user:
+        st.caption("로그인하면 내가 만든 동화만 모아볼 수 있어요.")
+
+    records: list[StoryRecord] | None = None
+    records_error: str | None = None
+    try:
+        if view_filter == "내 동화" and auth_user:
+            records = list_story_records(user_id=str(auth_user.get("uid")), limit=100)
         else:
-            remote_exports = list_gcs_exports()
-            if not remote_exports:
-                st.info("Google Cloud Storage에 저장된 동화가 없습니다. 새로 동화를 생성하면 여기에서 확인할 수 있어요.")
-            else:
-                tokens = [f"gcs:{export.object_name}" for export in remote_exports]
+            records = list_story_records(limit=100)
+    except Exception as exc:  # pragma: no cover - defensive catch
+        records_error = str(exc)
+        records = []
 
-                def _format_remote(idx: int) -> str:
-                    item = remote_exports[idx]
-                    updated = item.updated
-                    if updated and updated.tzinfo is None:
-                        updated = updated.replace(tzinfo=timezone.utc)
-                    if updated:
-                        updated_local = updated.astimezone(KST)
-                        modified = updated_local.strftime("%Y-%m-%d %H:%M:%S")
-                    else:
-                        modified = "시간 정보 없음"
-                    return f"{item.filename} · {modified}"
+    if records_error:
+        st.error(f"동화 기록을 불러오지 못했어요: {records_error}")
 
-                options = list(range(len(remote_exports)))
-                selected_token = st.session_state.get("selected_export")
-                default_index = 0
-                if selected_token in tokens:
-                    default_index = tokens.index(selected_token)
+    entries: list[dict[str, Any]] = []
+    recorded_keys: set[str] = set()
 
-                selected_index = st.selectbox(
-                    "읽고 싶은 동화를 선택하세요",
-                    options,
-                    index=default_index,
-                    format_func=_format_remote,
-                    key="remote_export_select",
+    for record in records:
+        key_candidate = (record.gcs_object or record.local_path or record.html_filename or "").lower()
+        if key_candidate:
+            recorded_keys.add(key_candidate)
+        entries.append(
+            {
+                "token": f"record:{record.id}",
+                "title": record.title,
+                "author": record.author_name,
+                "created_at": record.created_at_utc,
+                "local_path": record.local_path,
+                "gcs_object": record.gcs_object,
+                "gcs_url": record.gcs_url,
+                "html_filename": record.html_filename,
+                "origin": "record",
+            }
+        )
+
+    include_legacy = view_filter != "내 동화"
+    if include_legacy:
+        legacy_candidates: list[Any] = []
+        if USE_REMOTE_EXPORTS:
+            if is_gcs_available():
+                legacy_candidates = list_gcs_exports()
+        else:
+            legacy_candidates = list_html_exports()
+
+        for item in legacy_candidates:
+            if USE_REMOTE_EXPORTS:
+                key = (item.object_name or item.filename).lower()
+                if key in recorded_keys:
+                    continue
+                created_at = item.updated
+                if created_at and created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                created_at = created_at or datetime.fromtimestamp(0, tz=timezone.utc)
+                entries.append(
+                    {
+                        "token": f"legacy-remote:{item.object_name}",
+                        "title": Path(item.filename).stem,
+                        "author": None,
+                        "created_at": created_at,
+                        "local_path": None,
+                        "gcs_object": item.object_name,
+                        "gcs_url": item.public_url,
+                        "html_filename": item.filename,
+                        "origin": "legacy-remote",
+                    }
                 )
-
-                export_item = remote_exports[selected_index]
-                st.session_state["selected_export"] = tokens[selected_index]
-                st.session_state["story_export_remote_url"] = export_item.public_url
-                st.session_state["story_export_remote_blob"] = export_item.object_name
-
-                html_content = download_gcs_export(export_item.object_name)
-                if html_content is None:
-                    st.error("동화를 불러오는 데 실패했습니다.")
-                    if export_item.public_url:
-                        st.caption(f"파일 URL: {export_item.public_url}")
-                else:
-                    st.download_button(
-                        "동화 다운로드",
-                        data=html_content,
-                        file_name=export_item.filename,
-                        mime="text/html",
-                        use_container_width=True,
-                    )
-                    if export_item.public_url:
-                        st.caption(f"파일 URL: {export_item.public_url}")
-                    components.html(html_content, height=700, scrolling=True)
-    else:
-        exports = list_html_exports()
-
-        if not exports:
-            st.info("저장된 동화가 없습니다. 먼저 동화를 생성해주세요.")
-        else:
-            options = list(range(len(exports)))
-
-            def _format_local(idx: int) -> str:
-                path = exports[idx]
-                modified = datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                return f"{path.name} · {modified}"
-
-            selected_token = st.session_state.get("selected_export")
-            default_index = 0
-            if selected_token:
+            else:
+                key = str(item).lower()
+                if key in recorded_keys:
+                    continue
                 try:
-                    default_index = next(
-                        idx for idx, path in enumerate(exports) if str(path) == selected_token
-                    )
-                except StopIteration:
-                    default_index = 0
-
-            selected_index = st.selectbox(
-                "읽고 싶은 동화를 선택하세요",
-                options,
-                index=default_index,
-                format_func=_format_local,
-                key="local_export_select",
-            )
-
-            selected_path = exports[selected_index]
-            st.session_state["selected_export"] = str(selected_path)
-            st.session_state["story_export_remote_url"] = None
-            st.session_state["story_export_remote_blob"] = None
-
-            try:
-                html_content = selected_path.read_text("utf-8")
-            except Exception as exc:
-                st.error(f"동화를 여는 데 실패했습니다: {exc}")
-            else:
-                st.download_button(
-                    "동화 다운로드",
-                    data=html_content,
-                    file_name=selected_path.name,
-                    mime="text/html",
-                    use_container_width=True,
+                    mtime = datetime.fromtimestamp(item.stat().st_mtime, tz=timezone.utc)
+                except Exception:
+                    mtime = datetime.fromtimestamp(0, tz=timezone.utc)
+                entries.append(
+                    {
+                        "token": f"legacy-local:{item}",
+                        "title": item.stem,
+                        "author": None,
+                        "created_at": mtime,
+                        "local_path": str(item),
+                        "gcs_object": None,
+                        "gcs_url": None,
+                        "html_filename": item.name,
+                        "origin": "legacy-local",
+                    }
                 )
-                st.caption(f"파일 경로: {selected_path}")
-                components.html(html_content, height=700, scrolling=True)
+
+    if not entries:
+        if view_filter == "내 동화":
+            st.info("아직 내가 만든 동화가 없어요. 새 동화를 만들어보세요.")
+        else:
+            st.info("저장된 동화가 없습니다. 먼저 동화를 생성해주세요.")
+    else:
+        entries.sort(key=lambda entry: entry.get("created_at", datetime.fromtimestamp(0, tz=timezone.utc)), reverse=True)
+
+        def _format_entry(idx: int) -> str:
+            entry = entries[idx]
+            created = entry.get("created_at")
+            stamp = format_kst(created) if created else "시간 정보 없음"
+            author = entry.get("author")
+            if author and view_filter != "내 동화":
+                return f"{entry['title']} · {author} · {stamp}"
+            return f"{entry['title']} · {stamp}"
+
+        tokens = [entry["token"] for entry in entries]
+        selected_token = st.session_state.get("selected_export")
+        default_index = 0
+        if selected_token in tokens:
+            default_index = tokens.index(selected_token)
+
+        selected_index = st.selectbox(
+            "읽고 싶은 동화를 선택하세요",
+            list(range(len(entries))),
+            index=default_index,
+            format_func=_format_entry,
+            key="story_entry_select",
+        )
+
+        selected_entry = entries[selected_index]
+        st.session_state["selected_export"] = selected_entry["token"]
+        st.session_state["story_export_remote_blob"] = selected_entry.get("gcs_object")
+        st.session_state["story_export_remote_url"] = selected_entry.get("gcs_url")
+
+        html_content: str | None = None
+        html_error: str | None = None
+        local_candidates: list[Path] = []
+
+        local_path = selected_entry.get("local_path")
+        if local_path:
+            local_candidates.append(Path(local_path))
+        html_filename = selected_entry.get("html_filename")
+        if html_filename:
+            local_candidates.append(HTML_EXPORT_PATH / html_filename)
+
+        for candidate in local_candidates:
+            try:
+                if candidate.exists():
+                    html_content = candidate.read_text("utf-8")
+                    st.session_state["story_export_path"] = str(candidate)
+                    break
+            except Exception as exc:
+                html_error = str(exc)
+
+        if html_content is None and selected_entry.get("gcs_object"):
+            html_content = download_gcs_export(selected_entry["gcs_object"])
+            if html_content is None:
+                html_error = "원격 저장소에서 파일을 불러오지 못했어요."
+
+        if html_content is None:
+            if html_error:
+                st.error(f"동화를 여는 데 실패했습니다: {html_error}")
+            else:
+                st.error("동화를 여는 데 실패했습니다.")
+            if selected_entry.get("gcs_url"):
+                st.caption(f"파일 URL: {selected_entry['gcs_url']}")
+            elif local_path:
+                st.caption(f"파일 경로: {local_path}")
+        else:
+            st.download_button(
+                "동화 다운로드",
+                data=html_content,
+                file_name=selected_entry.get("html_filename") or "story.html",
+                mime="text/html",
+                use_container_width=True,
+            )
+            if selected_entry.get("gcs_url"):
+                st.caption(f"파일 URL: {selected_entry['gcs_url']}")
+            elif local_path:
+                st.caption(f"파일 경로: {local_path}")
+            components.html(html_content, height=700, scrolling=True)
 
     c1, c2 = st.columns(2)
     with c1:
