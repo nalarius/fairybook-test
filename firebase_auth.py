@@ -234,6 +234,12 @@ def verify_id_token(id_token: str, *, check_revoked: bool = False) -> Mapping[st
     return admin_auth.verify_id_token(id_token, check_revoked=check_revoked)
 
 
+def ensure_firebase_admin_initialized() -> firebase_admin.App:
+    """Public accessor for ensuring the Firebase Admin SDK is ready."""
+
+    return _ensure_firebase_admin_initialized()
+
+
 __all__ = [
     "AuthSession",
     "FirebaseAuthError",
@@ -242,4 +248,5 @@ __all__ = [
     "sign_up",
     "update_profile",
     "verify_id_token",
+    "ensure_firebase_admin_initialized",
 ]

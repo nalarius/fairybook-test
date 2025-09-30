@@ -81,6 +81,24 @@ The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the
 5. Let Gemini write the current stage with continuity context and create its illustration (optionally guided by the character art as an image reference); repeat until all five stages are complete.
 6. Open **전체 이야기를 모아봤어요** to review the full sequence. The app auto-saves an HTML bundle under `html_exports/` and surfaces the latest file path. Use **📖 동화책 읽기** any time to browse previously exported stories.
 
+### Admin Console
+Operations staff can launch a dedicated Streamlit console for user management, log analytics, and exports:
+
+```bash
+streamlit run admin_app.py
+# headless mode
+streamlit run admin_app.py --server.headless true
+```
+
+- Authenticate with a Firebase account that has the custom claim `role=admin`. Non-admin accounts are rejected.
+- The console exposes a usage dashboard, activity explorer, CSV/Google Sheets export tools, and user moderation controls (disable, role update, sanction logging).
+- Google Sheets exports require the service-account credentials used elsewhere plus edit access to the target spreadsheet. Set the spreadsheet ID in the UI when exporting.
+- Activity statistics rely on Firestore logging. If logging is disabled (`ACTIVITY_LOG_ENABLED=false`), the console surfaces a warning and some charts may be empty.
+- Helper scripts under `scripts/` assist with admin management:
+  - `python scripts/grant_admin_role.py <UID>` assigns the admin role; append `--remove` to revoke it.
+  - `python scripts/list_admin_users.py` prints every user whose custom claims include `role=admin`.
+- `admin_app.py` automatically loads the same `.env` file used by the main app, so confirm `FIREBASE_WEB_API_KEY`, `GCP_PROJECT_ID`, and service-account paths are set before starting the console.
+
 ## Run Tests
 Install the development dependency and execute the suite from the project root:
 
@@ -97,6 +115,7 @@ The suites under `tests/` mock external services (Gemini, Firebase, and GCS) so 
 - `ui/` – `home.py`, `auth.py`, and `board.py` encapsulate each page surface; `styles.py` applies the shared theme.
 - `services/story_service.py` – `StoryBundle`/`StagePayload` dataclasses plus HTML export and optional GCS upload helpers.
 - `telemetry.py` – Thin wrapper around the Firestore activity log with sensible defaults for user attribution.
+- `admin_app.py` – Standalone Streamlit entry point for administrators (analytics, moderation, exports). Supporting modules live under `admin_tool/`.
 - `community_board.py` – SQLite/Firestore dual backend for the experimental collaboration board.
 - `firebase_auth.py` – REST + Firebase Admin helpers for email/password sign-up, sign-in, token refresh, and server-side verification.
 - `gemini_client.py` – Gemini integration, including story prompt composition, synopsis/protagonist prompt builders, illustration prompt generation, and image model fallbacks.
@@ -123,3 +142,4 @@ The suites under `tests/` mock external services (Gemini, Firebase, and GCS) so 
 - Technical overview: `docs/TECHNICAL_BRIEF.md`
 - Repository contribution guidelines: `AGENTS.md`
 - Illustration style reference: `illust_styles.json`
+- Cloud configuration checklist: `docs/cloud_setup_guide.md`

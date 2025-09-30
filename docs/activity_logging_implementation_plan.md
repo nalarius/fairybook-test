@@ -51,6 +51,22 @@
 | board read  | Entering board mode (`render_board_page` call).              | `param1`: IP placeholder, `param2`: display name (if available).             |
 | board post  | After `community_board.add_post` succeeds/fails.             | `param1`: post ID (db row or Firestore doc ID), `param2`: display name.      |
 
+### Moderation (`type="moderation"`)
+| Action            | Trigger Point                                                                          | Param Mapping                                                                                                              |
+|------------------|----------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| content hide      | Admin tool hides or soft-deletes user-generated content (예: 커뮤니티 보드 게시글 숨김). | `param1`: target type (`board_post`, `story`, ...), `param2`: target ID, `param3`: reason code/key, `param4`: moderator note, `param5`: previous visibility/status. |
+| content restore   | Hidden content is restored to visible state.                                           | `param1`: target type, `param2`: target ID, `param3`: reason code (if applicable), `param4`: moderator note, `param5`: previous visibility/status.                 |
+| user sanction     | Admin applies user-level moderation (mute/ban/unban).                                  | `param1`: target user_id, `param2`: sanction type (`ban`, `mute`, `unban`), `param3`: duration or expiry ISO string, `param4`: moderator note, `param5`: related context ID (story/board). |
+
+- `user_id` on moderation events should capture the acting admin (moderator) so downstream tools can attribute moderation decisions. Targets are recorded via params as listed above.
+
+#### Moderation Field Conventions
+- **Reason codes** (param3): `spam`, `abuse`, `safety`, `copyright`, `user_request`, `other`.
+- **Target types** (param1): `board_post`, `board_comment`, `story`, `user_submission`. Extend cautiously so analytics filters remain stable.
+- **Sanction duration (param3 for user sanctions)**: standardized values `permanent`, `24h`, `7d`, `30d`; store ISO8601 expiry timestamps in metadata when a timed sanction applies.
+- **Moderator notes (param4)**: free-form string up to 280 chars; redact PII before logging.
+
+
 ## Error Handling & Result Field
 - `result` should be `success` when the action completes, `fail` on caught exceptions. Catch points:
   - Wrap around Gemini/story generation handlers for save events.
@@ -62,6 +78,7 @@
 - Story flow tests mock `emit_log_event` to assert start/save/view hooks fire without hitting external services.
 - Auth tests verify logging on signup/login/logout (mock logger to avoid external calls).
 - Board tests assert `board read` and `board post` events using monkeypatched logger helpers.
+- Moderation unit or integration tests simulate hide/restore/sanction flows to confirm `type="moderation"` payloads populate target metadata and acting admin IDs.
 
 ## Follow-Up / Deferred Items
 - Optional dual-write to SQLite for offline capture.
