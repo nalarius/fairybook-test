@@ -10,11 +10,12 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_image_select import image_select
+from activity_log import init_activity_log, log_event
 from community_board import BoardPost, add_post, init_board_store, list_posts
 from gcs_storage import (
     download_gcs_export,
@@ -39,6 +40,7 @@ from firebase_auth import (
     sign_up,
     update_profile,
 )
+from story_identifier import generate_story_id
 from story_library import StoryRecord, init_story_library, list_story_records, record_story_export
 
 st.set_page_config(page_title="동화책 생성기", page_icon="📖", layout="centered")
@@ -79,6 +81,8 @@ try:
 except Exception as exc:  # pragma: no cover - initialization failure surfaced later
     STORY_LIBRARY_INIT_ERROR = str(exc)
 
+init_activity_log()
+
 
 def _load_json_entries_from_file(path: str | Path, key: str) -> list[dict]:
     """Safely load a list of dict entries from a JSON file."""
@@ -100,6 +104,11 @@ _STATE_SIMPLE_DEFAULTS: dict[str, object] = {
     "mode": None,
     "age": None,
     "topic": None,
+    "story_id": None,
+    "story_started_at": None,
+    "view_story_id": None,
+    "story_view_logged_token": None,
+    "board_view_logged": False,
     "current_stage_idx": 0,
     "selected_type_idx": 0,
     "selected_story_card_idx": 0,
@@ -358,6 +367,37 @@ def _auth_display_name(user: Mapping[str, Any]) -> str:
     return display or email or "익명 사용자"
 
 
+def _auth_email(user: Mapping[str, Any] | None) -> str | None:
+    if not user:
+        return None
+    email = str(user.get("email") or "").strip()
+    return email or None
+
+
+def _emit_log_event(
+    *,
+    type: str,
+    action: str,
+    result: str,
+    params: Sequence[str | None] | None = None,
+    client_ip: str | None = None,
+    user_email: str | None = None,
+):
+    """Wrapper around ``log_event`` that defaults user_id to the current email."""
+
+    auth_user_state = st.session_state.get("auth_user")
+    derived_email = user_email if user_email is not None else _auth_email(auth_user_state)
+
+    return log_event(
+        type=type,
+        action=action,
+        result=result,
+        user_id=derived_email,
+        params=params,
+        client_ip=client_ip,
+    )
+
+
 def _handle_post_auth_redirect() -> None:
     next_action = st.session_state.pop("auth_next_action", None)
     st.session_state["auth_error"] = None
@@ -423,12 +463,37 @@ def render_auth_gate(home_bg: str | None) -> None:
             if not email_norm or not password:
                 st.session_state["auth_error"] = "이메일과 비밀번호를 모두 입력해 주세요."
             else:
+                client_ip = get_client_ip()
                 try:
                     session = sign_in(email_norm, password)
                 except Exception as exc:  # noqa: BLE001
-                    st.session_state["auth_error"] = _format_auth_error(exc)
+                    message = _format_auth_error(exc)
+                    st.session_state["auth_error"] = message
+                    _emit_log_event(
+                        type="user",
+                        action="login",
+                        result="fail",
+                        user_email=email_norm,
+                        params=[client_ip, email_norm, None, None, message],
+                        client_ip=client_ip,
+                    )
                 else:
                     _store_auth_session(session)
+                    current_user = st.session_state.get("auth_user") or {}
+                    current_email = _auth_email(current_user)
+                    _emit_log_event(
+                        type="user",
+                        action="login",
+                        result="success",
+                        params=[
+                            client_ip,
+                            _auth_display_name(current_user),
+                            None,
+                            None,
+                            None,
+                        ],
+                        client_ip=client_ip,
+                    )
                     _handle_post_auth_redirect()
 
     else:
@@ -458,14 +523,39 @@ def render_auth_gate(home_bg: str | None) -> None:
             if not email_norm or not password:
                 st.session_state["auth_error"] = "이메일과 비밀번호를 입력해 주세요."
             else:
+                client_ip = get_client_ip()
                 try:
                     session = sign_up(email_norm, password, display_name=display_norm or None)
                     if display_norm and not session.display_name:
                         session = update_profile(session.id_token, display_name=display_norm)
                 except Exception as exc:  # noqa: BLE001
-                    st.session_state["auth_error"] = _format_auth_error(exc)
+                    message = _format_auth_error(exc)
+                    st.session_state["auth_error"] = message
+                    _emit_log_event(
+                        type="user",
+                        action="signup",
+                        result="fail",
+                        user_email=email_norm,
+                        params=[client_ip, display_norm or email_norm, None, None, message],
+                        client_ip=client_ip,
+                    )
                 else:
                     _store_auth_session(session)
+                    current_user = st.session_state.get("auth_user") or {}
+                    current_email = _auth_email(current_user)
+                    _emit_log_event(
+                        type="user",
+                        action="signup",
+                        result="success",
+                        params=[
+                            client_ip,
+                            _auth_display_name(current_user),
+                            None,
+                            None,
+                            None,
+                        ],
+                        client_ip=client_ip,
+                    )
                     _handle_post_auth_redirect()
 
     st.caption("로그인에 어려움이 있다면 관리자에게 문의해 주세요.")
@@ -574,6 +664,17 @@ def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> N
     init_board_store()
     render_app_styles(home_bg, show_home_hero=False)
 
+    current_ip = get_client_ip()
+    if not st.session_state.get("board_view_logged"):
+        _emit_log_event(
+            type="board",
+            action="board read",
+            result="success",
+            params=[current_ip, _auth_display_name(auth_user) if auth_user else None, None, None, None],
+            client_ip=current_ip,
+        )
+        st.session_state["board_view_logged"] = True
+
     st.subheader("💬 동화 작업실 게시판")
     st.caption("동화를 만드는 분들끼리 짧은 메모를 나누는 공간이에요. 친절한 응원과 진행 상황을 가볍게 남겨보세요.")
 
@@ -585,18 +686,15 @@ def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> N
         st.session_state["step"] = 0
         st.session_state["board_submit_error"] = None
         st.session_state["board_submit_success"] = None
+        st.session_state["board_view_logged"] = False
         st.rerun()
         st.stop()
 
     st.markdown("---")
 
     with st.form("board_form", clear_on_submit=False):
-        alias_value = st.text_input(
-            "게시판에서 표시할 이름",
-            value=st.session_state.get("board_user_alias", default_alias),
-            max_chars=40,
-            placeholder="예: story_maker",
-        )
+        alias_display = st.session_state.get("board_user_alias", default_alias)
+        st.markdown(f"**게시판에서 표시할 이름:** {alias_display}")
         content_value = st.text_area(
             "메시지",
             value=st.session_state.get("board_content", ""),
@@ -606,21 +704,49 @@ def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> N
         )
         submitted = st.form_submit_button("메시지 남기기", type="primary", width='stretch')
 
+    alias_value = default_alias
     st.session_state["board_user_alias"] = alias_value
     st.session_state["board_content"] = content_value
 
     if submitted:
         try:
-            client_ip = get_client_ip()
-            add_post(user_id=alias_value or _auth_display_name(auth_user), content=content_value, client_ip=client_ip)
+            client_ip = current_ip or get_client_ip()
+            post_id = add_post(
+                user_id=alias_value or _auth_display_name(auth_user),
+                content=content_value,
+                client_ip=client_ip,
+            )
         except ValueError as exc:
-            st.session_state["board_submit_error"] = str(exc)
-        except Exception:
-            st.session_state["board_submit_error"] = "메시지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."
+            message = str(exc)
+            st.session_state["board_submit_error"] = message
+            _emit_log_event(
+                type="board",
+                action="board post",
+                result="fail",
+                params=[None, alias_value or _auth_display_name(auth_user), None, None, message],
+                client_ip=client_ip,
+            )
+        except Exception as exc:  # noqa: BLE001
+            message = "메시지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."
+            st.session_state["board_submit_error"] = message
+            _emit_log_event(
+                type="board",
+                action="board post",
+                result="fail",
+                params=[None, alias_value or _auth_display_name(auth_user), None, None, str(exc)],
+                client_ip=client_ip,
+            )
         else:
             st.session_state["board_content"] = ""
             st.session_state["board_submit_error"] = None
             st.session_state["board_submit_success"] = "메시지를 남겼어요!"
+            _emit_log_event(
+                type="board",
+                action="board post",
+                result="success",
+                params=[post_id, alias_value or _auth_display_name(auth_user), None, None, None],
+                client_ip=client_ip,
+            )
             st.rerun()
             st.stop()
 
@@ -719,6 +845,11 @@ def reset_all_state():
     keys = [
         "age",
         "topic",
+        "story_id",
+        "story_started_at",
+        "view_story_id",
+        "story_view_logged_token",
+        "board_view_logged",
         "age_input",
         "topic_input",
         "rand8",
@@ -774,11 +905,26 @@ def reset_all_state():
 
 
 def logout_user() -> None:
+    previous_user = st.session_state.get("auth_user")
+    display_name = None
+    user_email = None
+    if isinstance(previous_user, Mapping):
+        display_name = _auth_display_name(previous_user)
+        user_email = _auth_email(previous_user)
+    client_ip = get_client_ip()
     _clear_auth_session()
     reset_all_state()
     st.session_state["board_user_alias"] = None
     st.session_state["board_content"] = ""
     st.session_state["auth_next_action"] = None
+    _emit_log_event(
+        type="user",
+        action="logout",
+        result="success",
+        params=[client_ip, display_name, None, None, None],
+        client_ip=client_ip,
+        user_email=user_email,
+    )
 
 
 def clear_stages_from(index: int):
@@ -1203,6 +1349,8 @@ elif current_step == 1:
         st.session_state["current_stage_idx"] = 0
         st.session_state["age"] = st.session_state["age_input"]
         st.session_state["topic"] = (st.session_state["topic_input"] or "").strip()
+        st.session_state["story_id"] = None
+        st.session_state["story_started_at"] = None
         st.session_state["step"] = 2
 
 elif current_step == 2:
@@ -1378,6 +1526,22 @@ elif current_step == 2:
 
     if st.button("✨ 제목 만들기", type="primary", width='stretch'):
         reset_story_session()
+        if not st.session_state.get("story_id"):
+            started_at = datetime.now(timezone.utc)
+            story_id, started_at_iso = generate_story_id(
+                age=age_val,
+                topic=topic_val,
+                started_at=started_at,
+            )
+            st.session_state["story_id"] = story_id
+            st.session_state["story_started_at"] = started_at_iso
+            story_type_name_for_log = selected_type.get("name") if selected_type else None
+            _emit_log_event(
+                type="story",
+                action="story start",
+                result="success",
+                params=[story_id, age_val, topic_val, story_type_name_for_log, None],
+            )
         st.session_state["is_generating_all"] = True
         st.rerun()
         st.stop()
@@ -1727,7 +1891,21 @@ elif current_step == 5 and mode == "create":
             )
 
             if "error" in story_result:
-                st.session_state["story_error"] = story_result["error"]
+                error_message = story_result.get("error")
+                action_name = "story end" if stage_idx == len(STORY_PHASES) - 1 else "story card"
+                _emit_log_event(
+                    type="story",
+                    action=action_name,
+                    result="fail",
+                    params=[
+                        st.session_state.get("story_id"),
+                        card_name,
+                        stage_name,
+                        None,
+                        error_message,
+                    ],
+                )
+                st.session_state["story_error"] = error_message
                 st.session_state["story_result"] = None
                 st.session_state["story_prompt"] = None
                 st.session_state["story_image"] = None
@@ -1823,6 +2001,19 @@ elif current_step == 5 and mode == "create":
                     "image_error": st.session_state.get("story_image_error"),
                 }
                 st.session_state["stages_data"] = stages_copy
+                action_name = "story end" if stage_idx == len(STORY_PHASES) - 1 else "story card"
+                _emit_log_event(
+                    type="story",
+                    action=action_name,
+                    result="success",
+                    params=[
+                        st.session_state.get("story_id"),
+                        card_name,
+                        stage_name,
+                        None,
+                        None,
+                    ],
+                )
 
         st.session_state["is_generating_story"] = False
         st.rerun()
@@ -1953,6 +2144,7 @@ elif current_step == 6 and mode == "create":
             st.rerun()
         st.stop()
 
+
     cover_image = st.session_state.get("cover_image")
     cover_error = st.session_state.get("cover_image_error")
     cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
@@ -2053,6 +2245,20 @@ elif current_step == 6 and mode == "create":
                 st.session_state["story_export_remote_blob"] = None
                 st.session_state["selected_export"] = export_result.local_path
             auto_saved = True
+            user_email = _auth_email(auth_user)
+            _emit_log_event(
+                type="story",
+                action="story save",
+                result="success",
+                params=[
+                    st.session_state.get("story_id"),
+                    title_val,
+                    export_result.gcs_object or export_result.local_path,
+                    export_result.gcs_url,
+                    "auto-save",
+                ],
+                user_email=user_email,
+            )
             if auth_user:
                 try:
                     record_story_export(
@@ -2061,11 +2267,37 @@ elif current_step == 6 and mode == "create":
                         local_path=export_result.local_path,
                         gcs_object=export_result.gcs_object,
                         gcs_url=export_result.gcs_url,
+                        story_id=st.session_state.get("story_id"),
                         author_name=_auth_display_name(auth_user),
                     )
                 except Exception as exc:  # pragma: no cover - display only
+                    _emit_log_event(
+                        type="story",
+                        action="story save",
+                        result="fail",
+                        params=[
+                            st.session_state.get("story_id"),
+                            title_val,
+                            export_result.gcs_object or export_result.local_path,
+                            export_result.gcs_url,
+                            str(exc),
+                        ],
+                        user_email=user_email,
+                    )
                     st.warning(f"동화 기록을 저장하지 못했어요: {exc}")
         except Exception as exc:
+            _emit_log_event(
+                type="story",
+                action="story save",
+                result="fail",
+                params=[
+                    st.session_state.get("story_id"),
+                    title_val,
+                    None,
+                    None,
+                    str(exc),
+                ],
+            )
             st.error(f"HTML 자동 저장 실패: {exc}")
 
     export_path_current = st.session_state.get("story_export_path")
@@ -2171,6 +2403,7 @@ elif current_step == 5 and mode == "view":
                 "token": f"record:{record.id}",
                 "title": record.title,
                 "author": record.author_name,
+                "story_id": record.story_id,
                 "created_at": record.created_at_utc,
                 "local_path": record.local_path,
                 "gcs_object": record.gcs_object,
@@ -2266,6 +2499,7 @@ elif current_step == 5 and mode == "view":
 
         selected_entry = entries[selected_index]
         st.session_state["selected_export"] = selected_entry["token"]
+        st.session_state["view_story_id"] = selected_entry.get("story_id")
         st.session_state["story_export_remote_blob"] = selected_entry.get("gcs_object")
         st.session_state["story_export_remote_url"] = selected_entry.get("gcs_url")
 
@@ -2294,6 +2528,11 @@ elif current_step == 5 and mode == "view":
             if html_content is None:
                 html_error = "원격 저장소에서 파일을 불러오지 못했어요."
 
+        token = selected_entry["token"]
+        story_origin = selected_entry.get("origin")
+        story_title_display = selected_entry.get("title")
+        story_id_value = selected_entry.get("story_id")
+
         if html_content is None:
             if html_error:
                 st.error(f"동화를 여는 데 실패했습니다: {html_error}")
@@ -2303,6 +2542,21 @@ elif current_step == 5 and mode == "view":
                 st.caption(f"파일 URL: {selected_entry['gcs_url']}")
             elif local_path:
                 st.caption(f"파일 경로: {local_path}")
+            log_key = f"fail:{token}"
+            if st.session_state.get("story_view_logged_token") != log_key:
+                _emit_log_event(
+                    type="story",
+                    action="story view",
+                    result="fail",
+                    params=[
+                        story_id_value or token,
+                        story_title_display,
+                        story_origin,
+                        selected_entry.get("gcs_url") or local_path,
+                        html_error or "missing content",
+                    ],
+                )
+                st.session_state["story_view_logged_token"] = log_key
         else:
             st.download_button(
                 "동화 다운로드",
@@ -2316,6 +2570,21 @@ elif current_step == 5 and mode == "view":
             elif local_path:
                 st.caption(f"파일 경로: {local_path}")
             components.html(html_content, height=700, scrolling=True)
+            log_key = f"success:{token}"
+            if st.session_state.get("story_view_logged_token") != log_key:
+                _emit_log_event(
+                    type="story",
+                    action="story view",
+                    result="success",
+                    params=[
+                        story_id_value or token,
+                        story_title_display,
+                        story_origin,
+                        selected_entry.get("gcs_url") or local_path,
+                        None,
+                    ],
+                )
+                st.session_state["story_view_logged_token"] = log_key
 
     c1, c2 = st.columns(2)
     with c1:
@@ -2324,9 +2593,13 @@ elif current_step == 5 and mode == "view":
             st.session_state["step"] = 0
             st.session_state["selected_export"] = None
             st.session_state["story_export_path"] = None
+            st.session_state["view_story_id"] = None
+            st.session_state["story_view_logged_token"] = None
             st.rerun()
     with c2:
         if st.button("✏️ 새 동화 만들기", width='stretch'):
             st.session_state["mode"] = "create"
             st.session_state["step"] = 1
+            st.session_state["story_view_logged_token"] = None
+            st.session_state["view_story_id"] = None
             st.rerun()

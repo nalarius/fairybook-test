@@ -48,6 +48,11 @@ def test_list_story_records_filters_by_user(monkeypatch, tmp_path):
     all_records = lib.list_story_records(db_path=db_path)
     assert [record.title for record in all_records] == ["세 번째", "두 번째", "첫 번째"]
     assert [record.user_id for record in all_records] == ["user-1", "user-2", "user-1"]
+    assert all(record.story_id for record in all_records)
+
+    with lib._connect(db_path) as conn:  # type: ignore[attr-defined]
+        persisted_ids = [row["story_id"] for row in conn.execute("SELECT story_id FROM story_exports")]
+    assert all(persisted_ids)
 
     user_records = lib.list_story_records(user_id="user-1", db_path=db_path)
     assert {record.user_id for record in user_records} == {"user-1"}
@@ -67,7 +72,8 @@ def test_list_story_records_limit(monkeypatch, tmp_path):
     }
 
     for idx in range(5):
-        lib.record_story_export(user_id="user", title=f"story-{idx}", **record_kwargs)
+        exported = lib.record_story_export(user_id="user", title=f"story-{idx}", **record_kwargs)
+        assert exported.story_id
 
     with lib._connect(db_path) as conn:  # type: ignore[attr-defined]
         base = datetime(2024, 1, 2, 9, 0, tzinfo=timezone.utc)
