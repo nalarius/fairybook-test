@@ -124,8 +124,8 @@ def add_post(
     client_ip: str | None,
     db_path: Path = BOARD_DB_PATH,
     max_content_length: int = 1000,
-) -> None:
-    """Persist a new board post via the configured backend."""
+) -> str:
+    """Persist a new board post via the configured backend and return its identifier."""
 
     normalized_user = str(user_id).strip()
     normalized_content = str(content).strip()
@@ -151,11 +151,11 @@ def add_post(
                 "created_at_utc": timestamp,
             }
         )
-        return
+        return str(getattr(doc_ref, "id", ""))
 
     timestamp_iso = timestamp.isoformat(timespec="seconds")
     with _connect(db_path) as conn:
-        conn.execute(
+        cursor = conn.execute(
             """
             INSERT INTO board_posts (user_id, content, client_ip, created_at_utc)
             VALUES (?, ?, ?, ?)
@@ -163,6 +163,8 @@ def add_post(
             (normalized_user, normalized_content, client_ip, timestamp_iso),
         )
         conn.commit()
+        row_id = cursor.lastrowid
+    return str(row_id)
 
 
 def _coerce_datetime(value) -> datetime:

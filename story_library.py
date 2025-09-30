@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS story_exports (
     user_id TEXT NOT NULL,
     author_name TEXT,
     title TEXT NOT NULL,
+    story_id TEXT,
     html_filename TEXT NOT NULL,
     local_path TEXT,
     gcs_object TEXT,
@@ -54,6 +55,7 @@ class StoryRecord:
     """Metadata describing a generated story export."""
 
     id: str
+    story_id: str | None
     user_id: str
     title: str
     html_filename: str
@@ -106,6 +108,15 @@ def _get_story_collection():
     return client.collection(FIRESTORE_STORY_COLLECTION)
 
 
+def _ensure_story_id_column(conn: sqlite3.Connection) -> None:
+    columns = {
+        row["name"] if isinstance(row, sqlite3.Row) else row[1]
+        for row in conn.execute("PRAGMA table_info(story_exports)")
+    }
+    if "story_id" not in columns:
+        conn.execute("ALTER TABLE story_exports ADD COLUMN story_id TEXT")
+
+
 def init_story_library(db_path: Path = STORY_LIBRARY_DB_PATH) -> None:
     """Prepare the backing store for story export metadata."""
 
@@ -116,6 +127,7 @@ def init_story_library(db_path: Path = STORY_LIBRARY_DB_PATH) -> None:
 
     with _connect(db_path) as conn:
         conn.execute(_TABLE_SCHEMA_SQL)
+        _ensure_story_id_column(conn)
         conn.execute(_CREATE_INDEX_USER)
         conn.commit()
 
@@ -150,6 +162,7 @@ def record_story_export(
     local_path: str | None,
     gcs_object: str | None,
     gcs_url: str | None,
+    story_id: str | None = None,
     author_name: str | None = None,
     db_path: Path = STORY_LIBRARY_DB_PATH,
 ) -> StoryRecord:
@@ -169,11 +182,13 @@ def record_story_export(
 
     if USE_REMOTE_STORY_LIBRARY:
         collection = _get_story_collection()
-        doc_ref = collection.document()
+        doc_ref = collection.document(story_id) if story_id else collection.document()
+        assigned_story_id = story_id or str(getattr(doc_ref, "id", ""))
         payload = {
             "user_id": normalized_user,
             "author_name": normalized_author,
             "title": normalized_title,
+            "story_id": assigned_story_id,
             "html_filename": html_filename,
             "local_path": normalized_local_path,
             "gcs_object": normalized_gcs_object,
@@ -183,6 +198,7 @@ def record_story_export(
         doc_ref.set(payload)
         return StoryRecord(
             id=str(getattr(doc_ref, "id", "")),
+            story_id=assigned_story_id,
             user_id=normalized_user,
             title=normalized_title,
             html_filename=html_filename,
@@ -200,17 +216,19 @@ def record_story_export(
                 user_id,
                 author_name,
                 title,
+                story_id,
                 html_filename,
                 local_path,
                 gcs_object,
                 gcs_url,
                 created_at_utc
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized_user,
                 normalized_author,
                 normalized_title,
+                (story_id or None),
                 html_filename,
                 normalized_local_path,
                 normalized_gcs_object,
@@ -218,11 +236,18 @@ def record_story_export(
                 timestamp.isoformat(timespec="seconds"),
             ),
         )
-        conn.commit()
         row_id = cursor.lastrowid
+        assigned_story_id = story_id or str(row_id)
+        if not story_id:
+            conn.execute(
+                "UPDATE story_exports SET story_id = ? WHERE id = ?",
+                (assigned_story_id, row_id),
+            )
+        conn.commit()
 
     return StoryRecord(
         id=str(row_id),
+        story_id=assigned_story_id,
         user_id=normalized_user,
         title=normalized_title,
         html_filename=html_filename,
@@ -235,8 +260,10 @@ def record_story_export(
 
 
 def _make_story_record(doc_id: str, data: dict) -> StoryRecord:
+    resolved_story_id = str(data.get("story_id")) if data.get("story_id") else str(doc_id)
     return StoryRecord(
         id=str(doc_id),
+        story_id=resolved_story_id or None,
         user_id=str(data.get("user_id", "")),
         title=str(data.get("title", "")),
         html_filename=str(data.get("html_filename", "story.html")),
@@ -297,9 +324,16 @@ def list_story_records(
 
     records = []
     for row in rows:
+        row_story_id = None
+        if "story_id" in row.keys():
+            value = row["story_id"]
+            row_story_id = str(value) if value else None
+        if not row_story_id:
+            row_story_id = str(row["id"])
         records.append(
             StoryRecord(
                 id=str(row["id"]),
+                story_id=row_story_id,
                 user_id=str(row["user_id"]),
                 title=str(row["title"]),
                 html_filename=str(row["html_filename"]),
