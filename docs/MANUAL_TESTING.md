@@ -18,6 +18,7 @@ Use this checklist when validating changes locally. Capture notes or screenshots
 7. Step 5: Check that the loading spinner appears, the story paragraphs render alongside the stage illustration, and the art reuses the locked style (character portrait should influence poses when reference images are enabled).
 8. Step 6: Confirm the recap screen auto-saves an HTML bundle, surfaces the latest file path, and allows returning to remaining stages if any are incomplete.
 9. Generate at least two stories covering 다른 이야기 톤 (예: 하나는 밝고 희망적인 방향, 다른 하나는 서늘하거나 비극적인 방향)으로 각각 다른 type/card 조합을 사용하고, 두 결과를 비교해 톤이 다양하게 반영됐는지 확인한다.
+10. Check the Firestore activity log (or emulator) to ensure the `story start` entry records the chosen story type and the normalized topic string in its parameter list.
 
 ## Illustration Checks
 - Ensure the cover illustration renders, the character concept art appears, and later stages reuse the same style descriptor.

@@ -1,47 +1,65 @@
 # app.py
+from __future__ import annotations
+
 import base64
 import hashlib
-import html
 import json
 import os
 import random
-import re
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from zoneinfo import ZoneInfo
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 
 import streamlit as st
 import streamlit.components.v1 as components
 from streamlit_image_select import image_select
-from activity_log import init_activity_log, log_event
-from community_board import BoardPost, add_post, init_board_store, list_posts
-from gcs_storage import (
-    download_gcs_export,
-    is_gcs_available,
-    list_gcs_exports,
-    upload_html_to_gcs,
-)
+
+from activity_log import init_activity_log
+from app_constants import STAGE_GUIDANCE, STORY_PHASES
 from gemini_client import (
-    generate_story_with_gemini,
-    generate_image_with_gemini,
-    build_image_prompt,
     build_character_image_prompt,
-    generate_title_with_gemini,
-    generate_synopsis_with_gemini,
+    build_image_prompt,
+    generate_image_with_gemini,
     generate_protagonist_with_gemini,
+    generate_story_with_gemini,
+    generate_synopsis_with_gemini,
+    generate_title_with_gemini,
 )
-from firebase_auth import (
-    AuthSession,
-    FirebaseAuthError,
-    refresh_id_token,
-    sign_in,
-    sign_up,
-    update_profile,
+from gcs_storage import download_gcs_export, is_gcs_available, list_gcs_exports
+from services.story_service import (
+    ExportResult,
+    HTML_EXPORT_PATH,
+    StagePayload,
+    StoryBundle,
+    export_story_to_html,
+    list_html_exports,
+)
+from session_state import (
+    clear_stages_from,
+    ensure_state,
+    go_step,
+    reset_all_state,
+    reset_character_art,
+    reset_cover_art,
+    reset_protagonist_state,
+    reset_story_session,
+    reset_title_and_cover,
 )
 from story_identifier import generate_story_id
 from story_library import StoryRecord, init_story_library, list_story_records, record_story_export
+from telemetry import emit_log_event
+from ui.auth import render_auth_gate
+from ui.board import render_board_page
+from ui.home import render_home_screen
+from ui.styles import render_app_styles
+from utils.auth import (
+    auth_display_name,
+    auth_email,
+    clear_auth_session,
+    ensure_active_auth_session,
+)
+from utils.network import get_client_ip
+from utils.time_utils import format_kst
 
 st.set_page_config(page_title="동화책 생성기", page_icon="📖", layout="centered")
 
@@ -50,8 +68,6 @@ STYLE_JSON_PATH = "illust_styles.json"
 STORY_JSON_PATH = "story.json"
 ENDING_JSON_PATH = "ending.json"
 ILLUST_DIR = "illust"
-HTML_EXPORT_DIR = "html_exports"
-HTML_EXPORT_PATH = Path(HTML_EXPORT_DIR)
 HOME_BACKGROUND_IMAGE_PATH = Path("assets/illus-home-hero.png")
 
 STORY_STORAGE_MODE_RAW = (os.getenv("STORY_STORAGE_MODE") or "remote").strip().lower()
@@ -61,20 +77,6 @@ else:
     STORY_STORAGE_MODE = "local"
 
 USE_REMOTE_EXPORTS = STORY_STORAGE_MODE == "remote"
-
-STORY_PHASES = ["발단", "전개", "위기", "절정", "결말"]
-STAGE_GUIDANCE = {
-    "발단": "주인공과 배경을 생생하게 소개하고 모험의 씨앗이 되는 사건을 담아주세요. 기대와 호기심, 포근함이 교차하도록 만듭니다.",
-    "전개": "모험이 본격적으로 굴러가며 갈등이 커지도록 전개하세요. 긴장과 재미가 번갈아 오가고, 숨 돌릴 따뜻한 장면도 잊지 마세요.",
-    "위기": "이야기의 가장 큰 위기가 찾아옵니다. 위험과 두려움이 느껴지되, 인물 간의 믿음과 재치도 함께 드러나야 합니다.",
-    "절정": "결정적인 선택이나 행동으로 이야기가 뒤집히는 순간입니다. 장엄하거나 아슬아슬한 분위기와 함께 감정이 폭발하도록 그려주세요.",
-    "결말": "사건의 여파를 정리하면서 여운을 남기세요. 밝은 마무리든 씁쓸한 끝맺음이든 자연스럽게 수용하고, 아이가 상상할 여백을 둡니다.",
-}
-
-KST = ZoneInfo("Asia/Seoul")
-BOARD_POST_LIMIT = 50
-
-HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
 STORY_LIBRARY_INIT_ERROR: str | None = None
 try:
     init_story_library()
@@ -96,92 +98,6 @@ def _load_json_entries_from_file(path: str | Path, key: str) -> list[dict]:
     if not isinstance(items, list):
         return []
     return [item for item in items if isinstance(item, dict)]
-
-
-_STATE_SIMPLE_DEFAULTS: dict[str, object] = {
-    # Flow & selection state
-    "step": 0,
-    "mode": None,
-    "age": None,
-    "topic": None,
-    "story_id": None,
-    "story_started_at": None,
-    "view_story_id": None,
-    "story_view_logged_token": None,
-    "board_view_logged": False,
-    "current_stage_idx": 0,
-    "selected_type_idx": 0,
-    "selected_story_card_idx": 0,
-    "selected_style_id": None,
-
-    # Form seed values
-    "age_input": "6-8",
-    "topic_input": "",
-
-    # Board form state
-    "board_user_alias": None,
-    "board_content": "",
-    "board_submit_error": None,
-    "board_submit_success": None,
-
-    # Authentication state
-    "auth_user": None,
-    "auth_error": None,
-    "auth_form_mode": "signin",
-    "auth_next_action": None,
-
-    # UI helper flags
-    "reset_inputs_pending": False,
-
-    # Story generation artefacts
-    "story_error": None,
-    "story_result": None,
-    "story_prompt": None,
-    "story_image": None,
-    "story_image_mime": "image/png",
-    "story_image_style": None,
-    "story_image_error": None,
-    "story_cards_rand4": None,
-    "story_card_choice": None,
-    "story_export_path": None,
-    "story_export_remote_url": None,
-    "story_export_remote_blob": None,
-    "selected_export": None,
-    "story_export_signature": None,
-    "story_style_choice": None,
-
-    # Async flags
-    "is_generating_synopsis": False,
-    "is_generating_protagonist": False,
-    "is_generating_character_image": False,
-    "is_generating_title": False,
-    "is_generating_story": False,
-    "is_generating_all": False,  # 통합 생성 플래그
-
-    # Synopsis & protagonist artefacts
-    "synopsis_result": None,
-    "synopsis_hooks": None,
-    "synopsis_error": None,
-    "protagonist_result": None,
-    "protagonist_error": None,
-
-    # Character art
-    "character_prompt": None,
-    "character_image": None,
-    "character_image_mime": "image/png",
-    "character_image_error": None,
-
-    # Story output & title
-    "story_title": None,
-    "story_title_error": None,
-
-    # Cover artefacts
-    "cover_image": None,
-    "cover_image_mime": "image/png",
-    "cover_image_style": None,
-    "cover_image_error": None,
-    "cover_prompt": None,
-}
 
 @st.cache_data
 def load_story_types():
@@ -225,683 +141,8 @@ illust_styles = load_illust_styles()
 story_cards = load_story_cards()
 ending_cards = load_ending_cards()
 
-# ─────────────────────────────────────────────────────────────────────
-# 세션 상태: '없을 때만' 기본값. 절대 무조건 대입하지 않음.
-# ─────────────────────────────────────────────────────────────────────
-def ensure_state():
-    for key, default in _STATE_SIMPLE_DEFAULTS.items():
-        st.session_state.setdefault(key, default)
+ensure_state(story_types)
 
-    if "stages_data" not in st.session_state or len(st.session_state["stages_data"]) != len(STORY_PHASES):
-        st.session_state["stages_data"] = [None] * len(STORY_PHASES)
-
-    if "rand8" not in st.session_state:
-        st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
-
-ensure_state()
-
-
-_TOKEN_REFRESH_LEEWAY = timedelta(minutes=2)
-
-
-def _parse_iso_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        dt = datetime.fromisoformat(str(value))
-    except ValueError:
-        return None
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-def _store_auth_session(session: AuthSession, *, previous: Mapping[str, Any] | None = None) -> None:
-    prev = dict(previous) if previous else {}
-
-    email = session.email or prev.get("email", "")
-    display_name = session.display_name or prev.get("display_name", "")
-    uid = session.uid or prev.get("uid", "")
-    refresh_token = session.refresh_token or prev.get("refresh_token", "")
-
-    st.session_state["auth_user"] = {
-        "uid": uid,
-        "email": email,
-        "display_name": display_name,
-        "id_token": session.id_token or prev.get("id_token", ""),
-        "refresh_token": refresh_token,
-        "expires_at": session.expires_at.isoformat(),
-        "is_email_verified": session.is_email_verified or bool(prev.get("is_email_verified")),
-    }
-    st.session_state["auth_error"] = None
-
-    if prev.get("uid") != uid:
-        st.session_state["board_content"] = ""
-        st.session_state["board_user_alias"] = display_name or email
-    else:
-        st.session_state.setdefault("board_content", "")
-        st.session_state.setdefault("board_user_alias", display_name or email)
-
-
-def _clear_auth_session() -> None:
-    st.session_state["auth_user"] = None
-    st.session_state["auth_error"] = None
-    st.session_state["auth_form_mode"] = "signin"
-
-
-def _auth_user_from_state() -> dict[str, Any] | None:
-    raw = st.session_state.get("auth_user")
-    if not isinstance(raw, Mapping):
-        return None
-
-    data = dict(raw)
-    expires_at = _parse_iso_datetime(data.get("expires_at"))
-    refresh_token = data.get("refresh_token")
-    id_token = data.get("id_token")
-
-    if not expires_at or not refresh_token or not id_token:
-        _clear_auth_session()
-        return None
-
-    data["expires_at"] = expires_at
-    return data
-
-
-def _format_auth_error(error: Exception) -> str:
-    if isinstance(error, FirebaseAuthError):
-        code = (error.code or "").upper()
-        messages = {
-            "EMAIL_EXISTS": "이미 가입된 이메일이에요. 로그인으로 이동해 주세요.",
-            "INVALID_PASSWORD": "비밀번호가 올바르지 않습니다.",
-            "USER_NOT_FOUND": "등록되지 않은 이메일입니다.",
-            "INVALID_EMAIL": "이메일 주소 형식을 확인해 주세요.",
-            "WEAK_PASSWORD": "비밀번호는 6자 이상이어야 합니다.",
-            "MISSING_PASSWORD": "비밀번호를 입력해 주세요.",
-        }
-        if code in messages:
-            return messages[code]
-        return "Firebase 인증 요청이 실패했어요. 잠시 후 다시 시도해 주세요."
-    if isinstance(error, RuntimeError):
-        return str(error)
-    return "인증을 처리하는 중 오류가 발생했어요."
-
-
-def _ensure_active_auth_session() -> dict[str, Any] | None:
-    user = _auth_user_from_state()
-    if not user:
-        return None
-
-    expires_at: datetime = user["expires_at"]
-    now = datetime.now(timezone.utc)
-    if expires_at <= now:
-        refresh_needed = True
-    else:
-        refresh_needed = (expires_at - now) <= _TOKEN_REFRESH_LEEWAY
-
-    if refresh_needed:
-        refresh_token = user.get("refresh_token")
-        if refresh_token:
-            try:
-                refreshed = refresh_id_token(refresh_token)
-            except FirebaseAuthError as exc:
-                st.session_state["auth_error"] = _format_auth_error(exc)
-                _clear_auth_session()
-                return None
-            except Exception as exc:  # pragma: no cover - defensive
-                st.session_state["auth_error"] = f"세션을 갱신하지 못했어요: {exc}"
-                _clear_auth_session()
-                return None
-            else:
-                _store_auth_session(refreshed, previous=user)
-                user = _auth_user_from_state()
-        else:
-            _clear_auth_session()
-            return None
-
-    return user
-
-
-def _auth_display_name(user: Mapping[str, Any]) -> str:
-    display = str(user.get("display_name") or "").strip()
-    email = str(user.get("email") or "").strip()
-    return display or email or "익명 사용자"
-
-
-def _auth_email(user: Mapping[str, Any] | None) -> str | None:
-    if not user:
-        return None
-    email = str(user.get("email") or "").strip()
-    return email or None
-
-
-def _emit_log_event(
-    *,
-    type: str,
-    action: str,
-    result: str,
-    params: Sequence[str | None] | None = None,
-    client_ip: str | None = None,
-    user_email: str | None = None,
-):
-    """Wrapper around ``log_event`` that defaults user_id to the current email."""
-
-    auth_user_state = st.session_state.get("auth_user")
-    derived_email = user_email if user_email is not None else _auth_email(auth_user_state)
-
-    return log_event(
-        type=type,
-        action=action,
-        result=result,
-        user_id=derived_email,
-        params=params,
-        client_ip=client_ip,
-    )
-
-
-def _handle_post_auth_redirect() -> None:
-    next_action = st.session_state.pop("auth_next_action", None)
-    st.session_state["auth_error"] = None
-
-    if next_action == "create":
-        st.session_state["mode"] = "create"
-        st.session_state["step"] = max(1, st.session_state.get("step", 0))
-    elif next_action == "board":
-        st.session_state["mode"] = "board"
-        st.session_state["step"] = 0
-    else:
-        st.session_state["mode"] = None
-        st.session_state["step"] = 0
-
-    st.rerun()
-
-
-def render_auth_gate(home_bg: str | None) -> None:
-    render_app_styles(home_bg, show_home_hero=True)
-    st.title("📖 동화책 생성기")
-    st.subheader("먼저 로그인해 주세요")
-
-    if st.session_state.get("auth_error"):
-        st.error(st.session_state["auth_error"])
-
-    if st.session_state.get("auth_next_action") == "create":
-        st.caption("동화 만들기를 계속하려면 로그인해주세요.")
-    elif st.session_state.get("auth_next_action") == "board":
-        st.caption("게시판을 이용하려면 로그인해주세요.")
-
-    if st.button("← 돌아가기", width='stretch'):
-        st.session_state["mode"] = None
-        st.session_state["step"] = 0
-        st.session_state["auth_error"] = None
-        st.session_state["auth_next_action"] = None
-        st.rerun()
-
-    mode = st.radio(
-        "계정이 있으신가요?",
-        options=("signin", "signup"),
-        format_func=lambda value: "로그인" if value == "signin" else "회원가입",
-        horizontal=True,
-        key="auth_form_mode",
-    )
-
-    if mode == "signin":
-        with st.form("auth_signin_form", clear_on_submit=True):
-            email = st.text_input(
-                "이메일",
-                key="auth_signin_email",
-                placeholder="예: fairy@storybook.com",
-                max_chars=120,
-            )
-            password = st.text_input(
-                "비밀번호",
-                type="password",
-                key="auth_signin_password",
-            )
-            submitted = st.form_submit_button("로그인", type="primary", width='stretch')
-
-        if submitted:
-            email_norm = email.strip()
-            if not email_norm or not password:
-                st.session_state["auth_error"] = "이메일과 비밀번호를 모두 입력해 주세요."
-            else:
-                client_ip = get_client_ip()
-                try:
-                    session = sign_in(email_norm, password)
-                except Exception as exc:  # noqa: BLE001
-                    message = _format_auth_error(exc)
-                    st.session_state["auth_error"] = message
-                    _emit_log_event(
-                        type="user",
-                        action="login",
-                        result="fail",
-                        user_email=email_norm,
-                        params=[client_ip, email_norm, None, None, message],
-                        client_ip=client_ip,
-                    )
-                else:
-                    _store_auth_session(session)
-                    current_user = st.session_state.get("auth_user") or {}
-                    current_email = _auth_email(current_user)
-                    _emit_log_event(
-                        type="user",
-                        action="login",
-                        result="success",
-                        params=[
-                            client_ip,
-                            _auth_display_name(current_user),
-                            None,
-                            None,
-                            None,
-                        ],
-                        client_ip=client_ip,
-                    )
-                    _handle_post_auth_redirect()
-
-    else:
-        with st.form("auth_signup_form", clear_on_submit=True):
-            display_name = st.text_input(
-                "표시 이름",
-                key="auth_signup_display_name",
-                placeholder="게시판에 보일 이름",
-                max_chars=40,
-            )
-            email = st.text_input(
-                "이메일",
-                key="auth_signup_email",
-                placeholder="예: fairy@storybook.com",
-                max_chars=120,
-            )
-            password = st.text_input(
-                "비밀번호 (6자 이상)",
-                type="password",
-                key="auth_signup_password",
-            )
-            submitted = st.form_submit_button("가입하기", type="primary", width='stretch')
-
-        if submitted:
-            email_norm = email.strip()
-            display_norm = display_name.strip()
-            if not email_norm or not password:
-                st.session_state["auth_error"] = "이메일과 비밀번호를 입력해 주세요."
-            else:
-                client_ip = get_client_ip()
-                try:
-                    session = sign_up(email_norm, password, display_name=display_norm or None)
-                    if display_norm and not session.display_name:
-                        session = update_profile(session.id_token, display_name=display_norm)
-                except Exception as exc:  # noqa: BLE001
-                    message = _format_auth_error(exc)
-                    st.session_state["auth_error"] = message
-                    _emit_log_event(
-                        type="user",
-                        action="signup",
-                        result="fail",
-                        user_email=email_norm,
-                        params=[client_ip, display_norm or email_norm, None, None, message],
-                        client_ip=client_ip,
-                    )
-                else:
-                    _store_auth_session(session)
-                    current_user = st.session_state.get("auth_user") or {}
-                    current_email = _auth_email(current_user)
-                    _emit_log_event(
-                        type="user",
-                        action="signup",
-                        result="success",
-                        params=[
-                            client_ip,
-                            _auth_display_name(current_user),
-                            None,
-                            None,
-                            None,
-                        ],
-                        client_ip=client_ip,
-                    )
-                    _handle_post_auth_redirect()
-
-    st.caption("로그인에 어려움이 있다면 관리자에게 문의해 주세요.")
-
-
-def render_app_styles(home_bg: str | None, *, show_home_hero: bool = False) -> None:
-    """Apply global background styling and optionally render the home hero image."""
-    base_css = """
-    <style>
-    .stApp {
-        background: linear-gradient(180deg, #f6f2ff 0%, #fff8f2 68%, #ffffff 100%);
-    }
-    [data-testid="stHeader"] {
-        background: rgba(0, 0, 0, 0);
-    }
-    [data-testid="stAppViewContainer"] > .main > div:first-child {
-        background-color: rgba(255, 255, 255, 0.9);
-        border-radius: 20px;
-        padding: 1.75rem 2rem;
-        box-shadow: 0 18px 44px rgba(0, 0, 0, 0.12);
-        backdrop-filter: blur(1.5px);
-        max-width: 780px;
-    }
-    [data-testid="stAppViewContainer"] > .main > div:first-child h1 {
-        margin-bottom: 0.2rem;
-    }
-    .home-hero {
-        width: 100%;
-        height: 570px;
-        margin: 0.18rem 0 0.5rem;
-        background-position: center;
-        background-repeat: no-repeat;
-        background-size: contain;
-    }
-    @media (max-width: 640px) {
-        .home-hero {
-            height: 360px;
-            margin: 0.15rem 0 0.45rem;
-        }
-    }
-    </style>
-    """
-    st.markdown(base_css, unsafe_allow_html=True)
-
-    if show_home_hero and home_bg:
-        st.markdown(
-            f"<div class=\"home-hero\" style=\"background-image: url('data:image/png;base64,{home_bg}');\"></div>",
-            unsafe_allow_html=True,
-        )
-
-
-def get_client_ip() -> str | None:
-    """Attempt to extract the visitor's IP from Streamlit's request headers."""
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-
-        ctx = get_script_run_ctx()
-        if not ctx:
-            return None
-        headers = getattr(ctx, "request_headers", None)
-        if not headers:
-            return None
-
-        forwarded_for = headers.get("X-Forwarded-For")
-        if forwarded_for:
-            return forwarded_for.split(",")[0].strip()
-        for header_key in ("X-Real-IP", "CF-Connecting-IP", "Remote-Addr"):
-            candidate = headers.get(header_key)
-            if candidate:
-                return candidate.strip()
-    except Exception:
-        return None
-    return None
-
-
-def mask_client_ip(client_ip: str | None) -> str:
-    """Obscure parts of the IP address for display."""
-    if not client_ip:
-        return "unknown"
-    ip = client_ip.strip()
-    if not ip:
-        return "unknown"
-    if ":" in ip:  # IPv6
-        ip_no_scope = ip.split("%", 1)[0]
-        groups = [group for group in ip_no_scope.split(":") if group]
-        if len(groups) >= 3:
-            return ":".join(groups[:3]) + ":*:*"
-        return ip_no_scope
-    parts = ip.split(".")
-    if len(parts) >= 4:
-        return ".".join(parts[:2]) + ".*.*"
-    if len(parts) == 3:
-        return ".".join(parts[:1]) + ".*.*.*"
-    return ip
-
-
-def format_kst(dt: datetime) -> str:
-    aware = dt
-    if dt.tzinfo is None:
-        aware = dt.replace(tzinfo=timezone.utc)
-    return aware.astimezone(KST).strftime("%Y-%m-%d %H:%M")
-
-
-def render_board_page(home_bg: str | None, *, auth_user: Mapping[str, Any]) -> None:
-    """Render the lightweight community board view."""
-    init_board_store()
-    render_app_styles(home_bg, show_home_hero=False)
-
-    current_ip = get_client_ip()
-    if not st.session_state.get("board_view_logged"):
-        _emit_log_event(
-            type="board",
-            action="board read",
-            result="success",
-            params=[current_ip, _auth_display_name(auth_user) if auth_user else None, None, None, None],
-            client_ip=current_ip,
-        )
-        st.session_state["board_view_logged"] = True
-
-    st.subheader("💬 동화 작업실 게시판")
-    st.caption("동화를 만드는 분들끼리 짧은 메모를 나누는 공간이에요. 친절한 응원과 진행 상황을 가볍게 남겨보세요.")
-
-    default_alias = st.session_state.get("board_user_alias") or _auth_display_name(auth_user)
-    st.session_state.setdefault("board_user_alias", default_alias)
-
-    if st.button("← 홈으로 돌아가기", width='stretch'):
-        st.session_state["mode"] = None
-        st.session_state["step"] = 0
-        st.session_state["board_submit_error"] = None
-        st.session_state["board_submit_success"] = None
-        st.session_state["board_view_logged"] = False
-        st.rerun()
-        st.stop()
-
-    st.markdown("---")
-
-    with st.form("board_form", clear_on_submit=False):
-        alias_display = st.session_state.get("board_user_alias", default_alias)
-        st.markdown(f"**게시판에서 표시할 이름:** {alias_display}")
-        content_value = st.text_area(
-            "메시지",
-            value=st.session_state.get("board_content", ""),
-            height=140,
-            max_chars=1000,
-            placeholder="동화 작업 중 느낀 점이나 부탁할 내용을 자유롭게 남겨주세요.",
-        )
-        submitted = st.form_submit_button("메시지 남기기", type="primary", width='stretch')
-
-    alias_value = default_alias
-    st.session_state["board_user_alias"] = alias_value
-    st.session_state["board_content"] = content_value
-
-    if submitted:
-        try:
-            client_ip = current_ip or get_client_ip()
-            post_id = add_post(
-                user_id=alias_value or _auth_display_name(auth_user),
-                content=content_value,
-                client_ip=client_ip,
-            )
-        except ValueError as exc:
-            message = str(exc)
-            st.session_state["board_submit_error"] = message
-            _emit_log_event(
-                type="board",
-                action="board post",
-                result="fail",
-                params=[None, alias_value or _auth_display_name(auth_user), None, None, message],
-                client_ip=client_ip,
-            )
-        except Exception as exc:  # noqa: BLE001
-            message = "메시지를 저장하지 못했어요. 잠시 후 다시 시도해 주세요."
-            st.session_state["board_submit_error"] = message
-            _emit_log_event(
-                type="board",
-                action="board post",
-                result="fail",
-                params=[None, alias_value or _auth_display_name(auth_user), None, None, str(exc)],
-                client_ip=client_ip,
-            )
-        else:
-            st.session_state["board_content"] = ""
-            st.session_state["board_submit_error"] = None
-            st.session_state["board_submit_success"] = "메시지를 남겼어요!"
-            _emit_log_event(
-                type="board",
-                action="board post",
-                result="success",
-                params=[post_id, alias_value or _auth_display_name(auth_user), None, None, None],
-                client_ip=client_ip,
-            )
-            st.rerun()
-            st.stop()
-
-    if st.session_state.get("board_submit_error"):
-        st.error(st.session_state["board_submit_error"])
-        st.session_state["board_submit_error"] = None
-    elif st.session_state.get("board_submit_success"):
-        st.success(st.session_state["board_submit_success"])
-        st.session_state["board_submit_success"] = None
-
-    posts: list[BoardPost] = list_posts(limit=BOARD_POST_LIMIT)
-    if not posts:
-        st.info("아직 작성된 메시지가 없어요. 첫 글을 남겨보세요!")
-        return
-
-    st.markdown("---")
-    for post in posts:
-        masked_ip = mask_client_ip(post.client_ip)
-        timestamp = format_kst(post.created_at_utc)
-        meta = f"{timestamp} · {masked_ip}"
-        st.markdown(f"**{post.user_id}** · {meta}")
-        st.write(post.content)
-        st.markdown("---")
-
-def go_step(n: int):
-    st.session_state["step"] = n
-    if n in (1, 2, 3, 4, 5, 6):
-        st.session_state["mode"] = "create"
-
-
-def reset_story_session(
-    *,
-    keep_title: bool = False,
-    keep_cards: bool = False,
-    keep_synopsis: bool = False,
-    keep_protagonist: bool = False,
-    keep_character: bool = False,
-    keep_style: bool = False,
-):
-    defaults = {
-        "story_error": None,
-        "story_result": None,
-        "story_prompt": None,
-        "story_image": None,
-        "story_image_mime": "image/png",
-        "story_image_style": None,
-        "story_image_error": None,
-        "story_export_path": None,
-        "story_export_remote_url": None,
-        "story_export_remote_blob": None,
-        "story_export_signature": None,
-        "story_title_error": None,
-        "is_generating_story": False,
-        "is_generating_title": False,
-        "story_card_choice": None,
-        "synopsis_result": None,
-        "synopsis_hooks": None,
-        "synopsis_error": None,
-        "is_generating_synopsis": False,
-        "protagonist_result": None,
-        "protagonist_error": None,
-        "is_generating_protagonist": False,
-        "character_prompt": None,
-        "character_image": None,
-        "character_image_mime": "image/png",
-        "character_image_error": None,
-        "is_generating_character_image": False,
-        "selected_style_id": None,
-        "story_style_choice": None,
-        "cover_image_style": None,
-    }
-
-    if keep_synopsis:
-        for key in ("synopsis_result", "synopsis_hooks", "synopsis_error"):
-            defaults.pop(key, None)
-    if keep_protagonist:
-        for key in ("protagonist_result", "protagonist_error"):
-            defaults.pop(key, None)
-    if keep_character:
-        for key in ("character_prompt", "character_image", "character_image_mime", "character_image_error"):
-            defaults.pop(key, None)
-    if keep_style:
-        for key in ("selected_style_id", "story_style_choice", "cover_image_style"):
-            defaults.pop(key, None)
-
-    for key, value in defaults.items():
-        st.session_state[key] = value
-
-    if not keep_title:
-        st.session_state["story_title"] = None
-
-    if not keep_cards:
-        st.session_state["story_cards_rand4"] = None
-        st.session_state["selected_story_card_idx"] = 0
-def reset_all_state():
-    keys = [
-        "age",
-        "topic",
-        "story_id",
-        "story_started_at",
-        "view_story_id",
-        "story_view_logged_token",
-        "board_view_logged",
-        "age_input",
-        "topic_input",
-        "rand8",
-        "selected_type_idx",
-        "current_stage_idx",
-        "story_error",
-        "story_result",
-        "story_prompt",
-        "story_image",
-        "story_image_mime",
-        "story_image_style",
-        "story_image_error",
-        "story_title",
-        "story_title_error",
-        "story_cards_rand4",
-        "selected_story_card_idx",
-        "story_card_choice",
-        "story_export_path",
-        "story_export_remote_url",
-        "story_export_remote_blob",
-        "story_export_signature",
-        "selected_export",
-        "is_generating_title",
-        "is_generating_story",
-        "is_generating_all",
-        "stages_data",
-        "story_style_choice",
-        "cover_image",
-        "cover_image_mime",
-        "cover_image_style",
-        "cover_image_error",
-        "cover_prompt",
-        "synopsis_result",
-        "synopsis_hooks",
-        "synopsis_error",
-        "is_generating_synopsis",
-        "protagonist_result",
-        "protagonist_error",
-        "is_generating_protagonist",
-        "character_prompt",
-        "character_image",
-        "character_image_mime",
-        "character_image_error",
-        "is_generating_character_image",
-        "selected_style_id",
-    ]
-
-    for key in keys:
-        st.session_state.pop(key, None)
-
-    st.session_state["mode"] = None
-    st.session_state["step"] = 0
 
 
 def logout_user() -> None:
@@ -909,15 +150,15 @@ def logout_user() -> None:
     display_name = None
     user_email = None
     if isinstance(previous_user, Mapping):
-        display_name = _auth_display_name(previous_user)
-        user_email = _auth_email(previous_user)
+        display_name = auth_display_name(previous_user)
+        user_email = auth_email(previous_user)
     client_ip = get_client_ip()
-    _clear_auth_session()
+    clear_auth_session()
     reset_all_state()
     st.session_state["board_user_alias"] = None
     st.session_state["board_content"] = ""
     st.session_state["auth_next_action"] = None
-    _emit_log_event(
+    emit_log_event(
         type="user",
         action="logout",
         result="success",
@@ -925,261 +166,11 @@ def logout_user() -> None:
         client_ip=client_ip,
         user_email=user_email,
     )
-
-
-def clear_stages_from(index: int):
-    stages = st.session_state.get("stages_data") or []
-    if not stages:
-        return
-    clamped = max(0, min(index, len(stages)))
-    for i in range(clamped, len(stages)):
-        stages[i] = None
-    st.session_state["stages_data"] = stages
-
-
-def reset_character_art():
-    st.session_state["character_prompt"] = None
-    st.session_state["character_image"] = None
-    st.session_state["character_image_mime"] = "image/png"
-    st.session_state["character_image_error"] = None
-    st.session_state["is_generating_character_image"] = False
-
-
-
-def reset_title_and_cover(*, keep_style: bool = False, keep_title: bool = False):
-    if not keep_title:
-        st.session_state["story_title"] = None
-        st.session_state["story_title_error"] = None
-    st.session_state["is_generating_title"] = False
-    st.session_state["cover_image"] = None
-    st.session_state["cover_image_mime"] = "image/png"
-    if not keep_style:
-        st.session_state["cover_image_style"] = None
-        st.session_state["story_style_choice"] = None
-        st.session_state["selected_style_id"] = None
-    st.session_state["cover_image_error"] = None
-    st.session_state["cover_prompt"] = None
-
-
-
-def reset_protagonist_state(*, keep_style: bool = True):
-    st.session_state["protagonist_result"] = None
-    st.session_state["protagonist_error"] = None
-    st.session_state["is_generating_protagonist"] = False
-    reset_character_art()
-    reset_title_and_cover(keep_style=keep_style)
-
-
-
-def reset_cover_art(*, keep_style: bool = False):
-    reset_title_and_cover(keep_style=keep_style)
-
-
-def format_item_list(values, limit: int | None = 3) -> list[str]:
-    if values is None:
-        return []
-    if isinstance(values, str):
-        candidates = [values]
-    elif isinstance(values, (tuple, set)):
-        candidates = list(values)
-    elif isinstance(values, list):
-        candidates = values
-    else:
-        candidates = [values]
-    cleaned: list[str] = []
-    for item in candidates:
-        text_item = str(item).strip()
-        if text_item:
-            cleaned.append(text_item)
-    if limit is not None:
-        return cleaned[:limit]
-    return cleaned
-
-
-def list_html_exports() -> list[Path]:
-    """저장된 HTML 파일 목록(최신순)을 반환."""
-    try:
-        files = [p for p in HTML_EXPORT_PATH.glob("*.html") if p.is_file()]
-        return sorted(files, key=lambda path: path.stat().st_mtime, reverse=True)
-    except Exception:
-        return []
-
-
-def _slugify_filename(value: str) -> str:
-    """파일명에 안전하게 사용할 슬러그 생성."""
-    value = value.lower().strip()
-    value = re.sub(r"[^a-z0-9]+", "-", value)
-    slug = value.strip("-")
-    return slug or "story"
-
-
-def _build_story_html_document(
-    *,
-    title: str,
-    age: str,
-    topic: str,
-    story_type: str,
-    stages: list[dict],
-    cover: dict | None = None,
-    author: str | None = None,
-) -> str:
-    escaped_title = html.escape(title)
-    escaped_author = html.escape(author) if author else ""
-
-    cover_section = ""
-    if cover and cover.get("image_data_uri"):
-        cover_section = (
-            "    <section class=\"cover stage\">\n"
-            "        <figure>\n"
-            f"            <img src=\"{cover.get('image_data_uri')}\" alt=\"{escaped_title} 표지\" />\n"
-            "        </figure>\n"
-            "    </section>\n"
-        )
-
-    stage_sections: list[str] = []
-    for idx, stage in enumerate(stages, start=1):
-        image_data_uri = stage.get("image_data_uri") or ""
-        paragraphs = stage.get("paragraphs") or []
-
-        paragraphs_html = "\n".join(
-            f"            <p>{html.escape(paragraph)}</p>" for paragraph in paragraphs
-        ) or "            <p>(본문이 없습니다)</p>"
-
-        image_section = (
-            "        <figure>\n"
-            f"            <img src=\"{image_data_uri}\" alt=\"{escaped_title} 삽화\" />\n"
-            "        </figure>\n"
-        ) if image_data_uri else ""
-
-        section_html = (
-            "    <section class=\"stage\">\n"
-            f"{image_section}"
-            f"{paragraphs_html}\n"
-            "    </section>\n"
-        )
-        stage_sections.append(section_html)
-
-    stages_html = "".join(stage_sections)
-
-    author_block = (
-        f"        <p class=\"meta\">작성자: {escaped_author}</p>\n" if escaped_author else ""
-    )
-
-    return (
-        "<!DOCTYPE html>\n"
-        "<html lang=\"ko\">\n"
-        "<head>\n"
-        "    <meta charset=\"utf-8\" />\n"
-        f"    <title>{escaped_title}</title>\n"
-        "    <style>\n"
-        "        body { font-family: 'Noto Sans KR', sans-serif; margin: 2rem; background: #faf7f2; color: #2c2c2c; }\n"
-        "        header { margin-bottom: 2.5rem; }\n"
-        "        h1 { font-size: 2rem; margin-bottom: 0.5rem; }\n"
-        "        .meta { color: #555; font-size: 0.95rem; margin-bottom: 0.5rem; }\n"
-        "        .cover { margin-bottom: 3rem; }\n"
-        "        .stage { margin-bottom: 3rem; padding-bottom: 2rem; border-bottom: 1px solid rgba(0,0,0,0.08); }\n"
-        "        .stage:last-of-type { border-bottom: none; }\n"
-        "        figure { text-align: center; margin: 1.5rem auto; }\n"
-        "        figure img { max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 12px 36px rgba(0,0,0,0.12); }\n"
-        "        figcaption { font-size: 0.9rem; color: #666; margin-top: 0.5rem; }\n"
-        "        p { line-height: 1.65; font-size: 1.05rem; margin-bottom: 1rem; }\n"
-        "    </style>\n"
-        "</head>\n"
-        "<body>\n"
-        "    <header>\n"
-        f"        <h1>{escaped_title}</h1>\n"
-        f"{author_block}"
-        "    </header>\n"
-        f"{cover_section}{stages_html}"
-        "</body>\n"
-        "</html>\n"
-    )
-
-
-@dataclass(slots=True)
-class ExportResult:
-    local_path: str
-    gcs_object: str | None = None
-    gcs_url: str | None = None
-
-
-def export_story_to_html(
-    *,
-    title: str,
-    age: str,
-    topic: str | None,
-    story_type: str,
-    stages: list[dict],
-    cover: dict | None = None,
-    author: str | None = None,
-) -> ExportResult:
-    """다단계 이야기와 삽화를 하나의 HTML 파일로 저장하고 업로드한다."""
-    HTML_EXPORT_PATH.mkdir(parents=True, exist_ok=True)
-
-    normalized_stages: list[dict] = []
-    for stage in stages:
-        paragraphs_raw = stage.get("paragraphs") or []
-        paragraphs = [str(p).strip() for p in paragraphs_raw if str(p).strip()]
-        image_bytes = stage.get("image_bytes")
-        image_mime = stage.get("image_mime") or "image/png"
-        image_data_uri = None
-        if image_bytes:
-            encoded = base64.b64encode(image_bytes).decode("utf-8")
-            image_data_uri = f"data:{image_mime};base64,{encoded}"
-
-        normalized_stages.append(
-            {
-                "stage_name": stage.get("stage_name", "단계"),
-                "card_name": stage.get("card_name"),
-                "card_prompt": stage.get("card_prompt"),
-                "paragraphs": paragraphs,
-                "image_data_uri": image_data_uri,
-                "image_style_name": stage.get("image_style_name"),
-            }
-        )
-
-    cover_section = None
-    if cover and cover.get("image_bytes"):
-        image_bytes = cover.get("image_bytes")
-        image_mime = cover.get("image_mime") or "image/png"
-        encoded = base64.b64encode(image_bytes).decode("utf-8")
-        cover_section = {
-            "image_data_uri": f"data:{image_mime};base64,{encoded}",
-            "style_name": cover.get("style_name"),
-        }
-
-    safe_title = title.strip() or "동화"
-    html_doc = _build_story_html_document(
-        title=safe_title,
-        age=age,
-        topic=topic or "",
-        story_type=story_type,
-        stages=normalized_stages,
-        cover=cover_section,
-        author=(author or ""),
-    )
-
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    slug = _slugify_filename(safe_title)
-    filename = f"{timestamp}_{slug}.html"
-    export_path = HTML_EXPORT_PATH / filename
-
-    with export_path.open("w", encoding="utf-8") as f:
-        f.write(html_doc)
-
-    upload_result = upload_html_to_gcs(html_doc, filename) if USE_REMOTE_EXPORTS else None
-    gcs_object = None
-    gcs_url = None
-    if upload_result:
-        gcs_object, gcs_url = upload_result
-
-    return ExportResult(str(export_path), gcs_object=gcs_object, gcs_url=gcs_url)
-
 # ─────────────────────────────────────────────────────────────────────
 # 헤더/인증/진행
 # ─────────────────────────────────────────────────────────────────────
 home_bg = load_image_as_base64(str(HOME_BACKGROUND_IMAGE_PATH))
-auth_user = _ensure_active_auth_session()
+auth_user = ensure_active_auth_session()
 mode = st.session_state.get("mode")
 current_step = st.session_state["step"]
 
@@ -1197,7 +188,7 @@ header_cols = st.columns([6, 1])
 
 with header_cols[0]:
     if auth_user:
-        st.caption(f"👋 **{_auth_display_name(auth_user)}**님 반가워요.")
+        st.caption(f"👋 **{auth_display_name(auth_user)}**님 반가워요.")
     else:
         st.caption("로그인하면 동화 만들기와 게시판을 이용할 수 있어요.")
 
@@ -1206,7 +197,7 @@ with header_cols[1]:
     with menu:
         st.markdown("#### 메뉴")
         if auth_user:
-            st.write(f"현재 사용자: **{_auth_display_name(auth_user)}**")
+            st.write(f"현재 사용자: **{auth_display_name(auth_user)}**")
             if st.button("로그아웃", width='stretch'):
                 logout_user()
                 st.rerun()
@@ -1266,49 +257,11 @@ if mode == "board":
 render_app_styles(home_bg, show_home_hero=current_step == 0)
 
 if current_step == 0:
-    st.subheader("어떤 작업을 하시겠어요?")
-    try:
-        exports_available = bool(list_story_records(limit=1))
-    except Exception:
-        if USE_REMOTE_EXPORTS and is_gcs_available():
-            exports_available = bool(list_gcs_exports())
-        else:
-            exports_available = bool(list_html_exports())
-
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("✏️ 동화 만들기", width='stretch'):
-            if auth_user:
-                reset_all_state()
-                ensure_state()
-                st.session_state["mode"] = "create"
-                st.session_state["step"] = 1
-            else:
-                st.session_state["auth_next_action"] = "create"
-                st.session_state["mode"] = "auth"
-            st.rerun()
-    with c2:
-        view_clicked = st.button(
-            "📖 동화책 읽기",
-            width='stretch',
-            disabled=False,
-        )
-        if view_clicked:
-            st.session_state["mode"] = "view"
-            st.session_state["step"] = 5
-
-    board_clicked = st.button("💬 동화 작업실 게시판", width='stretch')
-    if board_clicked:
-        if auth_user:
-            st.session_state["mode"] = "board"
-            st.session_state["step"] = 0
-            st.session_state["board_submit_error"] = None
-            st.session_state["board_submit_success"] = None
-        else:
-            st.session_state["auth_next_action"] = "board"
-            st.session_state["mode"] = "auth"
-        st.rerun()
-
+    render_home_screen(
+        auth_user=auth_user,
+        use_remote_exports=USE_REMOTE_EXPORTS,
+        story_types=story_types,
+    )
 
 elif current_step == 1:
     st.subheader("1단계. 나이대와 이야기 아이디어를 입력하세요")
@@ -1536,11 +489,12 @@ elif current_step == 2:
             st.session_state["story_id"] = story_id
             st.session_state["story_started_at"] = started_at_iso
             story_type_name_for_log = selected_type.get("name") if selected_type else None
-            _emit_log_event(
+            topic_display = topic_val if topic_val else "(빈칸)"
+            emit_log_event(
                 type="story",
                 action="story start",
                 result="success",
-                params=[story_id, age_val, topic_val, story_type_name_for_log, None],
+                params=[story_id, age_val, story_type_name_for_log, topic_display, None],
             )
         st.session_state["is_generating_all"] = True
         st.rerun()
@@ -1893,7 +847,7 @@ elif current_step == 5 and mode == "create":
             if "error" in story_result:
                 error_message = story_result.get("error")
                 action_name = "story end" if stage_idx == len(STORY_PHASES) - 1 else "story card"
-                _emit_log_event(
+                emit_log_event(
                     type="story",
                     action=action_name,
                     result="fail",
@@ -2002,7 +956,7 @@ elif current_step == 5 and mode == "create":
                 }
                 st.session_state["stages_data"] = stages_copy
                 action_name = "story end" if stage_idx == len(STORY_PHASES) - 1 else "story card"
-                _emit_log_event(
+                emit_log_event(
                     type="story",
                     action=action_name,
                     result="success",
@@ -2149,7 +1103,7 @@ elif current_step == 6 and mode == "create":
     cover_error = st.session_state.get("cover_image_error")
     cover_style = st.session_state.get("story_style_choice") or st.session_state.get("cover_image_style")
 
-    export_ready_stages: list[dict] = []
+    export_ready_stages: list[StagePayload] = []
     display_sections: list[dict] = []
     text_lines: list[str] = [title_val, ""]
     signature_payload = {
@@ -2176,15 +1130,15 @@ elif current_step == 6 and mode == "create":
         image_hash = hashlib.sha256(image_bytes).hexdigest() if image_bytes else None
 
         export_ready_stages.append(
-            {
-                "stage_name": stage_name,
-                "card_name": card_info.get("name"),
-                "card_prompt": card_info.get("prompt"),
-                "paragraphs": paragraphs,
-                "image_bytes": image_bytes,
-                "image_mime": entry.get("image_mime"),
-                "image_style_name": (entry.get("image_style") or {}).get("name"),
-            }
+            StagePayload(
+                stage_name=stage_name,
+                card_name=card_info.get("name"),
+                card_prompt=card_info.get("prompt"),
+                paragraphs=paragraphs,
+                image_bytes=image_bytes,
+                image_mime=entry.get("image_mime") or "image/png",
+                image_style_name=(entry.get("image_style") or {}).get("name"),
+            )
         )
         signature_payload["stages"].append(
             {
@@ -2222,14 +1176,20 @@ elif current_step == 6 and mode == "create":
     auto_saved = False
     if st.session_state.get("story_export_signature") != signature:
         try:
-            export_result = export_story_to_html(
+            bundle = StoryBundle(
                 title=title_val,
+                stages=export_ready_stages,
+                synopsis=st.session_state.get("synopsis_result"),
+                protagonist=st.session_state.get("protagonist_result"),
+                cover=cover_payload,
+                story_type_name=story_type_name,
                 age=age_val,
                 topic=topic_val,
-                story_type=story_type_name,
-                stages=export_ready_stages,
-                cover=cover_payload,
-                author=_auth_display_name(auth_user) if auth_user else None,
+            )
+            export_result = export_story_to_html(
+                bundle=bundle,
+                author=auth_display_name(auth_user) if auth_user else None,
+                use_remote_exports=USE_REMOTE_EXPORTS,
             )
             st.session_state["story_export_path"] = export_result.local_path
             st.session_state["story_export_signature"] = signature
@@ -2245,8 +1205,8 @@ elif current_step == 6 and mode == "create":
                 st.session_state["story_export_remote_blob"] = None
                 st.session_state["selected_export"] = export_result.local_path
             auto_saved = True
-            user_email = _auth_email(auth_user)
-            _emit_log_event(
+            user_email = auth_email(auth_user)
+            emit_log_event(
                 type="story",
                 action="story save",
                 result="success",
@@ -2268,10 +1228,10 @@ elif current_step == 6 and mode == "create":
                         gcs_object=export_result.gcs_object,
                         gcs_url=export_result.gcs_url,
                         story_id=st.session_state.get("story_id"),
-                        author_name=_auth_display_name(auth_user),
+                        author_name=auth_display_name(auth_user),
                     )
                 except Exception as exc:  # pragma: no cover - display only
-                    _emit_log_event(
+                    emit_log_event(
                         type="story",
                         action="story save",
                         result="fail",
@@ -2286,7 +1246,7 @@ elif current_step == 6 and mode == "create":
                     )
                     st.warning(f"동화 기록을 저장하지 못했어요: {exc}")
         except Exception as exc:
-            _emit_log_event(
+            emit_log_event(
                 type="story",
                 action="story save",
                 result="fail",
@@ -2544,7 +1504,7 @@ elif current_step == 5 and mode == "view":
                 st.caption(f"파일 경로: {local_path}")
             log_key = f"fail:{token}"
             if st.session_state.get("story_view_logged_token") != log_key:
-                _emit_log_event(
+                emit_log_event(
                     type="story",
                     action="story view",
                     result="fail",
@@ -2572,7 +1532,7 @@ elif current_step == 5 and mode == "view":
             components.html(html_content, height=700, scrolling=True)
             log_key = f"success:{token}"
             if st.session_state.get("story_view_logged_token") != log_key:
-                _emit_log_event(
+                emit_log_event(
                     type="story",
                     action="story view",
                     result="success",
