@@ -305,19 +305,44 @@ def _render_summary_cards(summary) -> None:
     cols[2].metric("고유 사용자", f"{summary.distinct_users:,}")
 
 
-def _render_daily_chart(summary) -> None:
-    if not summary.daily_counts or not pd or not alt:  # pragma: no cover - optional charting
+def _render_activity_chart(summary, granularity: str) -> None:
+    if not pd or not alt:  # pragma: no cover - optional charting dependencies
         return
-    df = pd.DataFrame(
-        {"date": list(summary.daily_counts.keys()), "count": list(summary.daily_counts.values())}
-    ).sort_values("date")
+
+    counts_map = summary.hourly_counts if granularity == "hourly" else summary.daily_counts
+    if not counts_map:
+        return
+
+    df = pd.DataFrame({"bucket": list(counts_map.keys()), "count": list(counts_map.values())})
+
+    if granularity == "hourly":
+        df["bucket_dt"] = pd.to_datetime(df["bucket"], utc=True, errors="coerce")
+        df["bucket_dt"] = df["bucket_dt"].dt.tz_convert("Asia/Seoul")
+        df = df.dropna(subset=["bucket_dt"]).sort_values("bucket_dt")
+        x_field = alt.X(
+            "bucket_dt:T",
+            title="시간",
+            axis=alt.Axis(format="%Y-%m-%d %H:%M"),
+        )
+        tooltip_bucket = alt.Tooltip("bucket_dt:T", title="시간", format="%Y-%m-%d %H:%M")
+    else:
+        df["bucket_dt"] = pd.to_datetime(df["bucket"], errors="coerce").dt.date
+        df = df.dropna(subset=["bucket_dt"]).sort_values("bucket_dt")
+        df["bucket_label"] = df["bucket_dt"].astype(str)
+        order = sorted(set(df["bucket_label"].tolist()))
+        x_field = alt.X("bucket_label:N", title="날짜", sort=order)
+        tooltip_bucket = alt.Tooltip("bucket_label:N", title="날짜")
+
+    if df.empty:
+        return
+
     chart = (
         alt.Chart(df)
         .mark_bar()
         .encode(
-            x=alt.X("date:T", title="날짜"),
+            x=x_field,
             y=alt.Y("count:Q", title="이벤트 수"),
-            tooltip=["date:T", "count:Q"],
+            tooltip=[tooltip_bucket, alt.Tooltip("count:Q", title="이벤트 수")],
         )
     )
     st.altair_chart(chart, use_container_width=True)
@@ -341,6 +366,7 @@ def _render_dashboard(admin_user: Mapping[str, Any]) -> None:
             "types": list(EVENT_TYPE_OPTIONS),
             "results": list(RESULT_OPTIONS),
             "actions": [],
+            "granularity": "hourly",
         },
     )
 
@@ -383,7 +409,21 @@ def _render_dashboard(admin_user: Mapping[str, Any]) -> None:
 
     summary = summarize_entries(entries)
     _render_summary_cards(summary)
-    _render_daily_chart(summary)
+    granularity = state.get("granularity", "hourly")
+    radio_key = "dashboard_granularity"
+    if radio_key not in st.session_state:
+        st.session_state[radio_key] = granularity
+    granularity = st.radio(
+        "그래프 단위",
+        options=("hourly", "daily"),
+        index=0 if granularity == "hourly" else 1,
+        format_func=lambda value: "시간별" if value == "hourly" else "일별",
+        horizontal=True,
+        key=radio_key,
+    )
+    if granularity != state.get("granularity"):
+        state["granularity"] = granularity
+    _render_activity_chart(summary, granularity)
     _render_top_actions(summary)
 
 

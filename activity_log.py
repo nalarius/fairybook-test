@@ -13,8 +13,10 @@ from google_credentials import get_service_account_credentials
 
 try:  # pragma: no cover - optional dependency checked at runtime
     from google.cloud import firestore  # type: ignore
+    from google.cloud.firestore_v1 import FieldFilter  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover - gracefully handle missing package
     firestore = None  # type: ignore
+    FieldFilter = None  # type: ignore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -276,7 +278,16 @@ def _apply_in_filter(query: Any, field: str, values: Iterable[str]) -> Any:
         return query
     if len(cleaned) > 10:
         raise ValueError(f"Firestore 'in' filters support up to 10 values per field (field={field})")
-    return query.where(field, "in", cleaned)
+    return _apply_where(query, field, "in", cleaned)
+
+
+def _apply_where(query: Any, field: str, operator: str, value: Any) -> Any:
+    if FieldFilter is not None:
+        try:
+            return query.where(filter=FieldFilter(field, operator, value))
+        except Exception:  # pragma: no cover - fall back for unsupported ops
+            pass
+    return query.where(field, operator, value)
 
 
 def _resolve_descending_direction() -> Any:
@@ -328,11 +339,11 @@ def fetch_activity_entries(
     query = collection.order_by("timestamp", direction=_resolve_descending_direction())
 
     if start_ts is not None:
-        query = query.where("timestamp", ">=", _ensure_kst(start_ts))
+        query = _apply_where(query, "timestamp", ">=", _ensure_kst(start_ts))
     if end_ts is not None:
-        query = query.where("timestamp", "<=", _ensure_kst(end_ts))
+        query = _apply_where(query, "timestamp", "<=", _ensure_kst(end_ts))
     if cursor:
-        query = query.where("timestamp", "<", _parse_cursor(cursor))
+        query = _apply_where(query, "timestamp", "<", _parse_cursor(cursor))
     if type_filter:
         query = _apply_in_filter(query, "type", type_filter)
     if action_filter:

@@ -29,6 +29,7 @@ class ActivitySummary:
     by_type: dict[str, int]
     by_action: dict[str, int]
     daily_counts: dict[str, int]
+    hourly_counts: dict[str, int]
     failure_rate: float
 
 
@@ -88,9 +89,13 @@ def summarize_entries(entries: Sequence[ActivityLogEntry]) -> ActivitySummary:
     distinct_users = len({entry.user_id for entry in entries if entry.user_id})
 
     daily_counts: dict[str, int] = defaultdict(int)
+    hourly_counts: dict[str, int] = defaultdict(int)
     for entry in entries:
         day_key = entry.timestamp.date().isoformat()
         daily_counts[day_key] += 1
+        hour_bucket = entry.timestamp.replace(minute=0, second=0, microsecond=0)
+        hour_key = hour_bucket.isoformat()
+        hourly_counts[hour_key] += 1
 
     failure_rate = (failures / total_events) if total_events else 0.0
 
@@ -101,6 +106,7 @@ def summarize_entries(entries: Sequence[ActivityLogEntry]) -> ActivitySummary:
         by_type=dict(by_type_counter),
         by_action=dict(by_action_counter),
         daily_counts=dict(daily_counts),
+        hourly_counts=dict(hourly_counts),
         failure_rate=failure_rate,
     )
 
