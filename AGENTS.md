@@ -18,6 +18,8 @@ streamlit run app.py
 ## Coding Style & Naming Conventions
 Follow PEP 8: 4-space indentation, snake_case for functions and variables, UpperCamelCase only for classes. Keep Streamlit keys stable (see `ensure_state`) and centralize constants in caps (`JSON_PATH`, `ILLUST_DIR`). Prefer f-strings, type hints, and short helper functions. Preserve existing Korean copy and emoji for UX consistency.
 
+**Keep it simple:** Default to the most concise solution that stays clear on first read. Favor flat, well-named helpers over deeply nested logic, trim dead code quickly, and leave obvious refactors as small, incremental steps. When trade-offs arise, choose readable structure first and add comments only when the code itself cannot speak plainly.
+
 ## Testing Guidelines
 There is no automated suite yet; favor `pytest` with files named `test_*.py`. Mock `google.generativeai.GenerativeModel` when validating `generate_story_with_gemini` to avoid quota usage. Record manual test notes for UI flows: launch Streamlit, run through both steps, and confirm downloads. Capture regressions with screenshot diffs when adjusting layout.
 
@@ -25,6 +27,8 @@ There is no automated suite yet; favor `pytest` with files named `test_*.py`. Mo
 Use concise, imperative commit subjects (e.g., `Refine story selection state`). Group logical changes; avoid bundling asset updates with code unless required. PRs should describe motivation, implementation notes, local verification steps, and attach UI screenshots or clips for visible changes. Link related issues and call out follow-up work so reviewers can queue next tasks.
 
 **Agent workflow note:** Only perform `git commit` when the user explicitly requests it. Otherwise stage changes and report status without creating commits.
+
+**Conversation flow note:** When the user asks a question, respond with the answer or clarification first. Do not modify files until the user explicitly requests an edit or fix.
 
 ## Secrets & Configuration Tips
 Store `GEMINI_API_KEY` in `.env` (never commit it). Document any new environment variables in this file and add safe defaults. Large media belongs in remote storage; keep `illust/` limited to optimized PNGs so repo clones stay small. Rotate API keys immediately if they leak in logs or drafts.
