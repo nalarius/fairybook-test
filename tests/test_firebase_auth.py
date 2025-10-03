@@ -137,3 +137,10 @@ def test_verify_id_token_delegates_to_admin(monkeypatch):
     assert called.init is True
     assert called.token == "id-token"
     assert called.revoked is True
+
+
+def test_public_ensure_admin_initializer(monkeypatch):
+    module = reload_firebase_auth(monkeypatch, FIREBASE_WEB_API_KEY="dummy-key")
+
+    monkeypatch.setattr(module, "_ensure_firebase_admin_initialized", lambda: "app")
+    assert module.ensure_firebase_admin_initialized() == "app"

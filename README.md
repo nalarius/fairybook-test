@@ -1,6 +1,6 @@
 # Fairybook
 
-Fairybook is a Streamlit application that helps educators and parents craft short Korean children's stories and AI-generated illustrations powered by Google Gemini. The app now guides users through a six-step flow that locks in a single illustration style after the title stage, previews the cover art, and exports the finished story as a lightweight HTML bundle.
+Fairybook is a Streamlit application that helps educators and parents craft short Korean children's stories and AI-generated illustrations powered by Google Gemini. A modular Streamlit front end now orchestrates the six-step flow, locking a single illustration style after the title stage, previewing the cover art, and exporting the finished story as a lightweight HTML bundle.
 
 ## Core Features
 - Guided story creation: choose an age band, provide a one-line idea, and pick from randomized story archetypes.
@@ -81,6 +81,24 @@ The UI opens to a task selector. Choose **✏️ 동화 만들기** to start the
 5. Let Gemini write the current stage with continuity context and create its illustration (optionally guided by the character art as an image reference); repeat until all five stages are complete.
 6. Open **전체 이야기를 모아봤어요** to review the full sequence. The app auto-saves an HTML bundle under `html_exports/` and surfaces the latest file path. Use **📖 동화책 읽기** any time to browse previously exported stories.
 
+### Admin Console
+Operations staff can launch a dedicated Streamlit console for user management, log analytics, and exports:
+
+```bash
+streamlit run admin_app.py
+# headless mode
+streamlit run admin_app.py --server.headless true
+```
+
+- Authenticate with a Firebase account that has the custom claim `role=admin`. Non-admin accounts are rejected.
+- The console exposes a usage dashboard, activity explorer, CSV/Google Sheets export tools, and user moderation controls (disable, role update, sanction logging).
+- Google Sheets exports require the service-account credentials used elsewhere plus edit access to the target spreadsheet. Set the spreadsheet ID in the UI when exporting.
+- Activity statistics rely on Firestore logging. If logging is disabled (`ACTIVITY_LOG_ENABLED=false`), the console surfaces a warning and some charts may be empty.
+- Helper scripts under `scripts/` assist with admin management:
+  - `python scripts/grant_admin_role.py <UID>` assigns the admin role; append `--remove` to revoke it.
+  - `python scripts/list_admin_users.py` prints every user whose custom claims include `role=admin`.
+- `admin_app.py` automatically loads the same `.env` file used by the main app, so confirm `FIREBASE_WEB_API_KEY`, `GCP_PROJECT_ID`, and service-account paths are set before starting the console.
+
 ## Run Tests
 Install the development dependency and execute the suite from the project root:
 
@@ -89,11 +107,16 @@ pip install pytest
 python -m pytest
 ```
 
-The tests live under `tests/` and mock `google.generativeai.GenerativeModel`, so they run offline without consuming Gemini quota.
+The suites under `tests/` mock external services (Gemini, Firebase, and GCS) so they run offline. New coverage includes `tests/test_story_export_service.py`, which exercises the refactored `services.story_service.export_story_to_html` helper.
 
 ## Repository Tour
-- `app.py` – Streamlit UI and session-state management for the multi-step workflow, including the automated synopsis → protagonist → character art → title seeding loop.
-- `community_board.py` – Self-contained SQLite helpers powering the temporary collaboration board; keep changes scoped here so the feature remains easy to disable.
+- `app.py` – Streamlit entry point that wires together the modular UI views, session-state helpers, and story service.
+- `session_state.py` – Centralised defaults, navigation helpers, and reset functions that keep Streamlit reruns stable.
+- `ui/` – `home.py`, `auth.py`, and `board.py` encapsulate each page surface; `styles.py` applies the shared theme.
+- `services/story_service.py` – `StoryBundle`/`StagePayload` dataclasses plus HTML export and optional GCS upload helpers.
+- `telemetry.py` – Thin wrapper around the Firestore activity log with sensible defaults for user attribution.
+- `admin_app.py` – Standalone Streamlit entry point for administrators (analytics, moderation, exports). Supporting modules live under `admin_tool/`.
+- `community_board.py` – SQLite/Firestore dual backend for the experimental collaboration board.
 - `firebase_auth.py` – REST + Firebase Admin helpers for email/password sign-up, sign-in, token refresh, and server-side verification.
 - `gemini_client.py` – Gemini integration, including story prompt composition, synopsis/protagonist prompt builders, illustration prompt generation, and image model fallbacks.
 - `storytype.json`, `story.json`, `ending.json` – Data assets that describe story archetypes, reusable beats, and ending templates.
@@ -119,3 +142,4 @@ The tests live under `tests/` and mock `google.generativeai.GenerativeModel`, so
 - Technical overview: `docs/TECHNICAL_BRIEF.md`
 - Repository contribution guidelines: `AGENTS.md`
 - Illustration style reference: `illust_styles.json`
+- Cloud configuration checklist: `docs/cloud_setup_guide.md`

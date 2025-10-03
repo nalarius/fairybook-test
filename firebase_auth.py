@@ -167,7 +167,7 @@ def refresh_id_token(refresh_token: str) -> AuthSession:
 
 
 def update_profile(id_token: str, *, display_name: str | None = None) -> AuthSession:
-    """Update user profile fields (currently display_name)."""
+    """Update user profile fields (currently ``display_name``)."""
 
     payload: dict[str, Any] = {
         "idToken": id_token,
@@ -178,6 +178,25 @@ def update_profile(id_token: str, *, display_name: str | None = None) -> AuthSes
 
     data = _post_json(_build_url("accounts:update"), payload)
     return _parse_auth_session(data)
+
+
+def update_password(id_token: str, *, new_password: str) -> AuthSession:
+    """Change the account password using the authenticated ID token."""
+
+    payload = {
+        "idToken": id_token,
+        "password": new_password,
+        "returnSecureToken": True,
+    }
+    data = _post_json(_build_url("accounts:update"), payload)
+    return _parse_auth_session(data)
+
+
+def delete_account(id_token: str) -> None:
+    """Delete the authenticated account from Firebase Authentication."""
+
+    payload = {"idToken": id_token}
+    _post_json(_build_url("accounts:delete"), payload)
 
 
 def _resolve_service_account_path() -> Path | None:
@@ -234,6 +253,12 @@ def verify_id_token(id_token: str, *, check_revoked: bool = False) -> Mapping[st
     return admin_auth.verify_id_token(id_token, check_revoked=check_revoked)
 
 
+def ensure_firebase_admin_initialized() -> firebase_admin.App:
+    """Public accessor for ensuring the Firebase Admin SDK is ready."""
+
+    return _ensure_firebase_admin_initialized()
+
+
 __all__ = [
     "AuthSession",
     "FirebaseAuthError",
@@ -241,5 +266,8 @@ __all__ = [
     "sign_in",
     "sign_up",
     "update_profile",
+    "update_password",
+    "delete_account",
     "verify_id_token",
+    "ensure_firebase_admin_initialized",
 ]

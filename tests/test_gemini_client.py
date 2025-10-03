@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 import gemini_client
+from services import gemini_api as gemini_api_service
 
 
 class DummyResponse(SimpleNamespace):
@@ -68,6 +69,7 @@ def test_load_illust_styles_trims_and_caches(monkeypatch, tmp_path):
 
 def test_generate_title_with_gemini_parses_response(monkeypatch):
     monkeypatch.setattr(gemini_client, "API_KEY", "test-key")
+    monkeypatch.setattr(gemini_api_service, "API_KEY", "test-key")
 
     captured = {}
 
@@ -97,6 +99,7 @@ def test_generate_title_with_gemini_parses_response(monkeypatch):
 
 def test_generate_story_with_gemini_parses_json_fallback(monkeypatch):
     monkeypatch.setattr(gemini_client, "API_KEY", "test-key")
+    monkeypatch.setattr(gemini_api_service, "API_KEY", "test-key")
 
     story_payload = '{"title": "바람의 모험", "paragraphs": [" 첫 장면 ", " 둘째 장면 "]}'
     response_text = f"서론 {story_payload} 결론"
@@ -133,6 +136,7 @@ def test_generate_story_with_gemini_parses_json_fallback(monkeypatch):
 
 def test_build_image_prompt_returns_single_prompt(monkeypatch):
     monkeypatch.setattr(gemini_client, "API_KEY", "test-key")
+    monkeypatch.setattr(gemini_api_service, "API_KEY", "test-key")
     monkeypatch.setattr(gemini_client, "_ILLUST_STYLES_CACHE", None)
     monkeypatch.setattr(gemini_client, "_load_illust_styles", lambda: [{"name": "Fallback", "style": "soft"}])
 

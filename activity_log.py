@@ -6,15 +6,17 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
-from typing import Any, Mapping, MutableMapping, Sequence
+from typing import Any, Iterable, Mapping, MutableMapping, Sequence
 from zoneinfo import ZoneInfo
 
 from google_credentials import get_service_account_credentials
 
 try:  # pragma: no cover - optional dependency checked at runtime
     from google.cloud import firestore  # type: ignore
+    from google.cloud.firestore_v1 import FieldFilter  # type: ignore[attr-defined]
 except Exception:  # pragma: no cover - gracefully handle missing package
     firestore = None  # type: ignore
+    FieldFilter = None  # type: ignore
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -215,11 +217,156 @@ def log_event(
         return None
 
 
+@dataclass(slots=True)
+class ActivityLogPage:
+    """Paged Firestore response for activity log queries."""
+
+    entries: list[ActivityLogEntry]
+    next_cursor: str | None
+    has_more: bool
+
+
+def _ensure_kst(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=KST)
+    return dt.astimezone(KST)
+
+
+def _coerce_timestamp(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        ts = value
+    elif isinstance(value, str):
+        try:
+            ts = datetime.fromisoformat(value)
+        except ValueError:
+            ts = datetime.fromtimestamp(0, tz=KST)
+    else:
+        ts = datetime.fromtimestamp(0, tz=KST)
+
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=KST)
+    return ts.astimezone(KST)
+
+
+def _document_to_entry(document: Any) -> ActivityLogEntry:
+    data = document.to_dict() if hasattr(document, "to_dict") else {}
+    timestamp = _coerce_timestamp(data.get("timestamp") or data.get("timestamp_iso") or datetime.now(KST))
+
+    return ActivityLogEntry(
+        id=str(getattr(document, "id", "")),
+        type=_normalize_string(data.get("type")) or "unknown",
+        action=_normalize_string(data.get("action")) or "unknown",
+        result=_normalize_result(str(data.get("result", "success"))),
+        user_id=_normalize_string(data.get("user_id")) or None,
+        client_ip=_normalize_string(data.get("client_ip")) or None,
+        timestamp=timestamp,
+        year=int(data.get("year") or timestamp.year),
+        month=int(data.get("month") or timestamp.month),
+        day=int(data.get("day") or timestamp.day),
+        param1=_normalize_string(data.get("param1")) or None,
+        param2=_normalize_string(data.get("param2")) or None,
+        param3=_normalize_string(data.get("param3")) or None,
+        param4=_normalize_string(data.get("param4")) or None,
+        param5=_normalize_string(data.get("param5")) or None,
+        metadata=data.get("metadata") if isinstance(data.get("metadata"), Mapping) else None,
+    )
+
+
+def _apply_in_filter(query: Any, field: str, values: Iterable[str]) -> Any:
+    cleaned = sorted({value for value in (_normalize_string(v) for v in values) if value})
+    if not cleaned:
+        return query
+    if len(cleaned) > 10:
+        raise ValueError(f"Firestore 'in' filters support up to 10 values per field (field={field})")
+    return _apply_where(query, field, "in", cleaned)
+
+
+def _apply_where(query: Any, field: str, operator: str, value: Any) -> Any:
+    if FieldFilter is not None:
+        try:
+            return query.where(filter=FieldFilter(field, operator, value))
+        except Exception:  # pragma: no cover - fall back for unsupported ops
+            pass
+    return query.where(field, operator, value)
+
+
+def _resolve_descending_direction() -> Any:
+    query_cls = getattr(firestore, "Query", None)
+    if query_cls is None:
+        return "DESCENDING"
+    return getattr(query_cls, "DESCENDING", "DESCENDING")
+
+
+def _parse_cursor(cursor: str) -> datetime:
+    try:
+        return _coerce_timestamp(cursor)
+    except Exception as exc:  # pragma: no cover - defensive guard
+        raise ValueError(f"Invalid cursor value: {cursor}") from exc
+
+
+def fetch_activity_entries(
+    *,
+    type_filter: Sequence[str] | None = None,
+    action_filter: Sequence[str] | None = None,
+    result_filter: Sequence[str] | None = None,
+    start_ts: datetime | None = None,
+    end_ts: datetime | None = None,
+    cursor: str | None = None,
+    limit: int = 100,
+) -> ActivityLogPage:
+    """Fetch a page of activity log entries ordered by most recent timestamp.
+
+    Args:
+        type_filter: Optional collection of event types to include.
+        action_filter: Optional collection of event actions to include.
+        result_filter: Optional collection of result states (``success``/``fail``).
+        start_ts: Inclusive lower bound for ``timestamp`` (timezone aware preferred).
+        end_ts: Inclusive upper bound for ``timestamp``.
+        cursor: ISO8601 timestamp string representing the exclusive upper bound for
+            subsequent pages. Typically this is the ``timestamp`` of the last row on
+            the previous page.
+        limit: Maximum number of entries to return (1-500).
+
+    Returns:
+        ActivityLogPage containing hydrated ``ActivityLogEntry`` instances, cursor,
+        and a ``has_more`` flag when additional records are available.
+    """
+
+    if limit <= 0 or limit > 500:
+        raise ValueError("limit must be between 1 and 500")
+
+    collection = _get_activity_collection()
+    query = collection.order_by("timestamp", direction=_resolve_descending_direction())
+
+    if start_ts is not None:
+        query = _apply_where(query, "timestamp", ">=", _ensure_kst(start_ts))
+    if end_ts is not None:
+        query = _apply_where(query, "timestamp", "<=", _ensure_kst(end_ts))
+    if cursor:
+        query = _apply_where(query, "timestamp", "<", _parse_cursor(cursor))
+    if type_filter:
+        query = _apply_in_filter(query, "type", type_filter)
+    if action_filter:
+        query = _apply_in_filter(query, "action", action_filter)
+    if result_filter:
+        query = _apply_in_filter(query, "result", ( _normalize_result(v) for v in result_filter ))
+
+    raw_documents = list(query.limit(limit + 1).stream())
+    has_more = len(raw_documents) > limit
+    sliced_documents = raw_documents[:limit]
+    entries = [_document_to_entry(doc) for doc in sliced_documents]
+    next_cursor = entries[-1].timestamp.isoformat() if entries and has_more else None
+
+    return ActivityLogPage(entries=entries, next_cursor=next_cursor, has_more=has_more)
+
+
 __all__ = [
     "ActivityLogEntry",
+    "ActivityLogPage",
     "ACTIVITY_LOG_COLLECTION",
     "ACTIVITY_LOG_ENABLED",
     "GCP_PROJECT_ID",
+    "fetch_activity_entries",
     "get_activity_logging_status",
     "init_activity_log",
     "is_activity_logging_enabled",
