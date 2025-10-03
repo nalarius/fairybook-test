@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import datetime
+import json
+from collections.abc import Mapping as AbcMapping, Sequence as AbcSequence
+from datetime import date, datetime
 from typing import Iterable, Mapping, Sequence
 
 from google_credentials import get_service_account_credentials
@@ -27,10 +29,36 @@ def rows_to_csv_bytes(rows: Sequence[Mapping[str, object]]) -> bytes:
     writer.writeheader()
     for row in rows:
         if field_names:
-            writer.writerow({key: row.get(key, "") for key in field_names})
+            writer.writerow({key: _stringify_cell(row.get(key, "")) for key in field_names})
         else:
-            writer.writerow({"value": row})
+            writer.writerow({"value": _stringify_cell(row)})
     return buffer.getvalue().encode("utf-8")
+
+
+def _stringify_cell(value: object) -> str:
+    """Convert complex values into a Sheets-friendly string representation."""
+
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "TRUE" if value else "FALSE"
+    if isinstance(value, (str, int, float)):
+        return str(value)
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, AbcMapping):
+        try:
+            return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        except TypeError:
+            return str(value)
+    if isinstance(value, AbcSequence) and not isinstance(value, (str, bytes, bytearray)):
+        try:
+            return json.dumps(list(value), ensure_ascii=False, default=str)
+        except TypeError:
+            return str(list(value))
+    return str(value)
 
 
 def export_rows_to_google_sheet(
@@ -112,11 +140,11 @@ def export_rows_to_google_sheet(
     if header:
         values.append(header)
         for row in rows:
-            values.append([row.get(field, "") for field in header])
+            values.append([_stringify_cell(row.get(field, "")) for field in header])
     else:
         values.append(["value"])
         for row in rows:
-            values.append([row])
+            values.append([_stringify_cell(row)])
 
     sheet_service.values().update(
         spreadsheetId=spreadsheet_id,

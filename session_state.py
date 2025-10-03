@@ -3,9 +3,15 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Sequence
 
-import streamlit as st
+try:  # pragma: no cover - allows importing without Streamlit in tests
+    import streamlit as st
+except ModuleNotFoundError:  # pragma: no cover - test fallback
+    from types import SimpleNamespace
+
+    st = SimpleNamespace(session_state={})
 
 from app_constants import STORY_PHASES
+from session_proxy import StorySessionProxy
 
 
 _STATE_DEFAULTS: dict[str, Any] = {
@@ -94,29 +100,39 @@ _STATE_DEFAULTS: dict[str, Any] = {
 }
 
 
+def _proxy() -> StorySessionProxy:
+    """Return a proxy around the current Streamlit session state."""
+
+    return StorySessionProxy(st.session_state)
+
+
 def ensure_state(story_types: Sequence[Mapping[str, Any]]) -> None:
+    proxy = _proxy()
     for key, default in _STATE_DEFAULTS.items():
-        st.session_state.setdefault(key, default)
+        proxy.setdefault(key, default)
 
-    if "stages_data" not in st.session_state or len(st.session_state["stages_data"]) != len(STORY_PHASES):
-        st.session_state["stages_data"] = [None] * len(STORY_PHASES)
+    stages = proxy.get("stages_data")
+    if not isinstance(stages, list) or len(stages) != len(STORY_PHASES):
+        proxy["stages_data"] = [None] * len(STORY_PHASES)
 
-    if "rand8" not in st.session_state and story_types:
+    if "rand8" not in proxy and story_types:
         import random
 
-        st.session_state["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
+        proxy["rand8"] = random.sample(story_types, k=min(8, len(story_types)))
 
 
 def go_step(step: int) -> None:
-    st.session_state["step"] = step
+    proxy = _proxy()
+    proxy.step = step
     if step in (1, 2, 3, 4, 5, 6):
-        st.session_state["mode"] = "create"
+        proxy.mode = "create"
 
 
 def clear_stages_from(index: int) -> None:
-    stages = st.session_state.get("stages_data")
+    proxy = _proxy()
+    stages = proxy.get("stages_data")
     if not isinstance(stages, list):
-        st.session_state["stages_data"] = [None] * len(STORY_PHASES)
+        proxy["stages_data"] = [None] * len(STORY_PHASES)
         return
 
     for idx in range(index, len(STORY_PHASES)):
@@ -125,36 +141,38 @@ def clear_stages_from(index: int) -> None:
 
 
 def reset_character_art() -> None:
-    st.session_state["character_prompt"] = None
-    st.session_state["character_image"] = None
-    st.session_state["character_image_mime"] = "image/png"
-    st.session_state["character_image_error"] = None
-    st.session_state["is_generating_character_image"] = False
+    proxy = _proxy()
+    proxy.reset_keys(
+        "character_prompt",
+        "character_image",
+        "character_image_error",
+    )
+    proxy["character_image_mime"] = "image/png"
+    proxy.set_flag("is_generating_character_image", False)
 
 
 def reset_cover_art(*, keep_style: bool = False) -> None:
-    st.session_state["cover_image"] = None
-    st.session_state["cover_image_mime"] = "image/png"
-    st.session_state["cover_image_error"] = None
-    st.session_state["cover_prompt"] = None
+    proxy = _proxy()
+    proxy.reset_keys("cover_image", "cover_image_error", "cover_prompt")
+    proxy["cover_image_mime"] = "image/png"
     if not keep_style:
-        st.session_state["cover_image_style"] = None
+        proxy["cover_image_style"] = None
 
 
 def reset_title_and_cover(*, keep_style: bool = False, keep_title: bool = False) -> None:
+    proxy = _proxy()
     if not keep_title:
-        st.session_state["story_title"] = None
-    st.session_state["story_title_error"] = None
+        proxy["story_title"] = None
+    proxy["story_title_error"] = None
     reset_cover_art(keep_style=keep_style)
 
 
 def reset_protagonist_state(*, keep_style: bool = True) -> None:
-    st.session_state["protagonist_result"] = None
-    st.session_state["protagonist_error"] = None
-    st.session_state["is_generating_protagonist"] = False
+    proxy = _proxy()
+    proxy.reset_keys("protagonist_result", "protagonist_error")
+    proxy.set_flag("is_generating_protagonist", False)
     if not keep_style:
-        st.session_state["selected_style_id"] = None
-        st.session_state["story_style_choice"] = None
+        proxy.reset_keys("selected_style_id", "story_style_choice")
 
 
 def reset_story_session(
@@ -166,6 +184,7 @@ def reset_story_session(
     keep_character: bool = False,
     keep_style: bool = False,
 ) -> None:
+    proxy = _proxy()
     keys = {
         "story_error": None,
         "story_result": None,
@@ -220,17 +239,18 @@ def reset_story_session(
         keys.pop("cover_image_style", None)
 
     for key, value in keys.items():
-        st.session_state[key] = value
+        proxy[key] = value
 
     if not keep_title:
-        st.session_state["story_title"] = None
+        proxy["story_title"] = None
 
     if not keep_cards:
-        st.session_state["story_cards_rand4"] = None
-        st.session_state["selected_story_card_idx"] = 0
+        proxy["story_cards_rand4"] = None
+        proxy["selected_story_card_idx"] = 0
 
 
 def reset_all_state() -> None:
+    proxy = _proxy()
     keys_to_clear: Iterable[str] = {
         "age",
         "topic",
@@ -287,10 +307,10 @@ def reset_all_state() -> None:
     }
 
     for key in keys_to_clear:
-        st.session_state.pop(key, None)
+        proxy.pop(key, None)
 
-    st.session_state["mode"] = None
-    st.session_state["step"] = 0
+    proxy.mode = None
+    proxy.step = 0
 
 
 __all__ = [
@@ -303,4 +323,5 @@ __all__ = [
     "reset_protagonist_state",
     "reset_story_session",
     "reset_all_state",
+    "StorySessionProxy",
 ]

@@ -82,6 +82,45 @@ def test_list_users_search_short_circuits(monkeypatch):
     assert fake_admin.list_called is False
 
 
+def test_list_users_query_alias(monkeypatch):
+    record = _make_record("uid-query")
+
+    monkeypatch.setattr(user_service, "search_user", lambda term: [record] if term == "uid-query" else [])
+
+    users, token = user_service.list_users(query=" uid-query ")
+    assert len(users) == 1
+    assert users[0].uid == "uid-query"
+    assert token is None
+
+
+def test_list_users_role_filter(monkeypatch):
+    admin_records = [
+        _make_record("uid-admin", custom_claims={"role": "admin"}),
+        _make_record("uid-support", custom_claims={"role": "support"}),
+        _make_record("uid-none", custom_claims={}),
+    ]
+    fake_page = SimpleNamespace(users=admin_records, next_page_token="next")
+
+    class FakeAdmin:
+        UserNotFoundError = Exception
+
+        def list_users(self, **kwargs):  # noqa: ARG002
+            return fake_page
+
+    monkeypatch.setattr(user_service, "ensure_firebase_admin_initialized", lambda: None)
+    monkeypatch.setattr(user_service, "admin_auth", FakeAdmin())
+
+    admins, token = user_service.list_users(role="admin")
+    assert [user.uid for user in admins] == ["uid-admin"]
+    assert token == "next"
+
+    supports, _ = user_service.list_users(role="support")
+    assert [user.uid for user in supports] == ["uid-support"]
+
+    none_role, _ = user_service.list_users(role="none")
+    assert [user.uid for user in none_role] == ["uid-none"]
+
+
 def test_set_user_role_updates_claims(monkeypatch):
     initial = _make_record(custom_claims={})
     updated = _make_record(custom_claims={"role": "admin"})

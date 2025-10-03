@@ -99,27 +99,50 @@ def search_user(term: str) -> list[AdminUser]:
     return [_serialize_user(record) for record in _unique_records(candidates)]
 
 
+def _normalize_role_filter(role: str | None) -> str | None:
+    if role is None:
+        return None
+    normalized = role.strip().lower()
+    if not normalized or normalized == "all":
+        return None
+    return normalized
+
+
+def _filter_users_by_role(users: Sequence[AdminUser], role: str | None) -> list[AdminUser]:
+    normalized = _normalize_role_filter(role)
+    if normalized is None:
+        return list(users)
+    if normalized == "none":
+        return [user for user in users if not user.role]
+    return [user for user in users if (user.role or "").lower() == normalized]
+
+
 def list_users(
     *,
     page_size: int = 50,
     page_token: str | None = None,
     search: str | None = None,
+    query: str | None = None,
+    role: str | None = None,
 ) -> tuple[list[AdminUser], str | None]:
-    """Return a page of users, optionally short-circuiting with a search term."""
+    """Return a page of users, optionally short-circuiting with search and role filters."""
 
     if page_size <= 0 or page_size > 1000:
         raise ValueError("page_size must be between 1 and 1000")
 
-    if search:
-        results = search_user(search)
+    search_term = (search or query or "").strip()
+    role_filter = role
+
+    if search_term:
+        results = search_user(search_term)
         if results:
-            return results, None
+            return _filter_users_by_role(results, role_filter), None
 
     _ensure_admin()
     page = admin_auth.list_users(page_token=page_token, max_results=page_size)
     users = [_serialize_user(record) for record in getattr(page, "users", [])]
     next_token = getattr(page, "next_page_token", None)
-    return users, next_token
+    return _filter_users_by_role(users, role_filter), next_token
 
 
 def set_user_disabled(uid: str, disabled: bool) -> AdminUser:
