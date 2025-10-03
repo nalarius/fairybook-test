@@ -35,6 +35,7 @@ from ui.auth import render_auth_gate
 from ui.board import render_board_page
 from ui.create import CreatePageContext, render_current_step
 from ui.home import render_home_screen
+from ui.settings import render_account_settings
 from ui.styles import render_app_styles
 from utils.auth import (
     auth_display_name,
@@ -159,7 +160,7 @@ auth_user = ensure_active_auth_session()
 mode = st.session_state.get("mode")
 current_step = st.session_state["step"]
 
-if mode in {"create", "board"} and not auth_user:
+if mode in {"create", "board", "settings"} and not auth_user:
     st.session_state["auth_next_action"] = mode
     st.session_state["mode"] = "auth"
     st.rerun()
@@ -186,8 +187,12 @@ with header_cols[1]:
             if st.button("로그아웃", width='stretch'):
                 logout_user()
                 st.rerun()
-            st.button("설정 (준비중)", disabled=True, width='stretch')
-            st.caption("설정 항목은 준비 중이에요.")
+            if st.button("계정 설정", width='stretch'):
+                st.session_state["mode"] = "settings"
+                st.session_state["step"] = 0
+                st.session_state["auth_next_action"] = None
+                st.rerun()
+            st.caption("계정 정보와 비밀번호를 관리할 수 있어요.")
         else:
             if st.button("로그인 / 회원가입", width='stretch'):
                 st.session_state["auth_next_action"] = None
@@ -226,6 +231,10 @@ else:
 
 if mode == "board":
     render_board_page(home_bg, auth_user=auth_user)
+    st.stop()
+
+if mode == "settings":
+    render_account_settings(home_bg, auth_user=auth_user)
     st.stop()
 
 render_app_styles(home_bg, show_home_hero=current_step == 0)

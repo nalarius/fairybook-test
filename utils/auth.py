@@ -80,6 +80,7 @@ def format_auth_error(error: Exception) -> str:
         messages = {
             "EMAIL_EXISTS": "이미 가입된 이메일이에요. 로그인으로 이동해 주세요.",
             "INVALID_PASSWORD": "비밀번호가 올바르지 않습니다.",
+            "INVALID_LOGIN_CREDENTIALS": "이메일 또는 비밀번호가 올바르지 않습니다.",
             "USER_NOT_FOUND": "등록되지 않은 이메일입니다.",
             "INVALID_EMAIL": "이메일 주소 형식을 확인해 주세요.",
             "WEAK_PASSWORD": "비밀번호는 6자 이상이어야 합니다.",
